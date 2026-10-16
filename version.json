@@ -1,8 +1,8 @@
 {
-  "version": "0.3.2",
-  "notes": "Backgrounds fill the whole page",
+  "version": "0.3.3",
+  "notes": "Update button, backgrounds fill the whole page",
   "released": "2026-10-16",
-  "firefox": "https://github.com/wozers0/kerosene/releases/download/v0.3.2/kerosene-firefox.xpi",
-  "chrome": "https://github.com/wozers0/kerosene/releases/download/v0.3.2/kerosene-chrome.zip",
-  "page": "https://github.com/wozers0/kerosene/releases/tag/v0.3.2"
+  "firefox": "https://raw.githubusercontent.com/wozers0/kerosene/main/dist/kerosene-firefox.xpi",
+  "chrome": "https://raw.githubusercontent.com/wozers0/kerosene/main/dist/kerosene-chrome.zip",
+  "page": "https://github.com/wozers0/kerosene"
 }
