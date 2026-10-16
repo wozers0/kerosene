@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Kerosene",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Fuel for Octane - straight bullshit made by dad and claude!!!",
   "action": {
     "default_title": "Kerosene",
@@ -59,7 +59,8 @@
         "shared/char-field.js",
         "content/engine.js",
         "content/values.js",
-        "content/avatar-sandbox.js"
+        "content/avatar-sandbox.js",
+        "content/update-fx.js"
       ],
       "run_at": "document_start",
       "all_frames": true

@@ -48,6 +48,8 @@ Firefox only installs extensions permanently when they're signed by Mozilla. Pic
 
 **Keep it installed — regular Firefox:** get a free signature from Mozilla. Sign in at [addons.mozilla.org/developers](https://addons.mozilla.org/developers/), click **Submit a New Add-on**, choose **On your own**, and upload `kerosene-firefox.xpi`. Mozilla sends back a signed `.xpi` (usually within minutes); install that from `about:addons` → ⚙️ → **Install Add-on From File…**.
 
+**Updating (Firefox / Zen):** click the ↻ button in the Kerosene popup. Kerosene downloads the new signed version, a small Kerosene window opens and Firefox asks twice (**Continue to Installation**, then **Add**); your Octane page refreshes into the new version. Firefox also installs updates by itself about once a day.
+
 After installing, pin Kerosene from the Extensions (puzzle-piece) menu. If the popup shows **"Kerosene needs permission…"**, click **Allow**.
 
 ## Using it
@@ -66,5 +68,6 @@ After installing, pin Kerosene from the Extensions (puzzle-piece) menu. If the p
 - `content/engine.js` — themes and backgrounds on octane.wtf
 - `content/values.js` — item values and trade helpers (runs inside Octane's `/theme2020/` iframes too)
 - `content/avatar-main.js` — the avatar Sandbox; runs in the editor page's own world so it can build the tab with the page's AngularJS. `content/avatar-sandbox.js` stores its outfits in extension storage
+- `update/` — the small window Firefox's installer runs in when you press the update button; `content/update-fx.js` shows the loading screen and the refresh animation on Octane pages
 - `background.js` — friend polling, notifications, Octomons value cache, cross-origin stylesheet fetches
 - `shared/` — settings + Octane API helpers, theme definitions, values maths, the character-field animation, and the `ext` browser-API shim

@@ -275,7 +275,14 @@
       window.removeEventListener("pointerup", onRelease);
     }
 
-    return { setRunning, setColor, destroy };
+    // a ripple from code (animations); defaults to the middle of the field
+    function ripple(x = canvas.clientWidth / 2, y = canvas.clientHeight / 2) {
+      ripples.push({ x, y, start: performance.now() });
+      if (ripples.length > 4) ripples.shift();
+      if (!running) draw(performance.now());
+    }
+
+    return { setRunning, setColor, destroy, ripple };
   }
 
   window.KeroseneField = { create, colors: Object.keys(COLORS), rgb: COLORS };

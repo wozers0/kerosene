@@ -640,39 +640,154 @@ function setUpdateState(state, label = "", title = "") {
   b.setAttribute("aria-label", b.title);
 }
 
+// ---------- the update screen ----------
+const screen = {
+  el: () => $("update-screen"),
+  show(from, to, title = "Updating Kerosene") {
+    const s = this.el();
+    s.hidden = false;
+    s.classList.remove("done", "failed", "out");
+    $("us-title").textContent = title;
+    $("us-from").textContent = `v${from}  \u2192  v${to}`;
+    $("us-to").textContent = `now on v${to}`;
+    this.progress(null);
+    this.actions();
+  },
+  // plain text; **this** comes out bold
+  status(text) {
+    $("us-status").replaceChildren(...String(text).split("**").map((part, i) => (i % 2 ? el("b", { textContent: part }) : part)));
+  },
+  // null = busy (indeterminate), 0..1 = known progress
+  progress(f) {
+    $("us-bar").classList.toggle("busy", f == null);
+    $("us-bar-fill").style.width = f == null ? "" : `${Math.round(f * 100)}%`;
+  },
+  actions(...buttons) { $("us-actions").replaceChildren(...buttons); },
+  fail(message, ...buttons) {
+    this.el().classList.add("failed");
+    $("us-title").textContent = "Update didn't finish";
+    this.progress(0);
+    this.status(message);
+    this.actions(...buttons, button("Close", () => this.hide()));
+    setUpdateState("error", "update failed", message);
+  },
+  hide() { this.el().hidden = true; },
+};
+
+function button(label, onClick, primary = false) {
+  const b = el("button", { className: `btn small${primary ? "" : " ghost"}`, textContent: label });
+  b.type = "button";
+  b.addEventListener("click", onClick);
+  return b;
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// One port to the background for the whole update (it reports progress)
+function updatePort() {
+  const port = ext.runtime.connect({ name: "kerosene-update" });
+  const waiters = [];
+  port.onMessage.addListener((m) => {
+    if (m.type === "progress") return port.onProgress?.(m.loaded, m.total);
+    const w = waiters.findIndex((x) => x.type === m.type || m.type === "error");
+    if (w >= 0) waiters.splice(w, 1)[0].resolve(m);
+  });
+  port.ask = (msg, expect) => new Promise((resolve) => { waiters.push({ type: expect, resolve }); port.postMessage(msg); });
+  return port;
+}
+
 async function checkForUpdate() {
   const b = $("update-btn");
   if (b.dataset.state === "checking" || b.dataset.state === "updating") return;
+  // Firefox only installs from a click, and a click "lasts" about 5 seconds
+  const clickedAt = Date.now();
   setUpdateState("checking", "checking…");
-  const started = Date.now();
   let info, error;
   try { info = await S.fetchLatestRelease(); } catch (err) { error = err; }
   // let the spin read as a check even on a fast connection
-  await new Promise((r) => setTimeout(r, Math.max(0, 700 - (Date.now() - started))));
+  await sleep(Math.max(0, 700 - (Date.now() - clickedAt)));
   const current = ext.runtime.getManifest().version;
   if (error) return setUpdateState("error", "couldn't check", `Couldn't check for updates: ${error.message}`);
   if (!S.newerVersion(info.version, current)) {
     return setUpdateState("latest", "up to date", `Kerosene ${current} is the latest version`);
   }
   setUpdateState("updating", "updating…", `Updating to ${info.version}${info.notes ? ` — ${info.notes}` : ""}`);
-  const res = await ext.runtime.sendMessage({ type: "apply-update", info }).catch((err) => ({ mode: "error", error: String(err) }));
-  if (res?.mode === "store" && res.status !== "update_available") {
-    // the store hasn't published it yet; Chrome checks again by itself
-    setUpdateState("updating", `${info.version} soon`, `Version ${info.version} is on its way through the web store`);
-  } else if (res?.mode === "manual") {
-    setUpdateState("updating", `get ${info.version}`, `This copy was loaded by hand; download ${info.version} from GitHub`);
-  } else if (res?.mode === "error") {
-    setUpdateState("error", "update failed", res.error);
+  screen.show(current, info.version);
+  screen.status(info.notes || "Getting the new version…");
+
+  const port = updatePort();
+  const { kind } = await port.ask({ type: "kind" }, "kind");
+
+  if (kind === "manual") {
+    screen.el().classList.add("failed");
+    $("us-title").textContent = `Kerosene ${info.version} is out`;
+    screen.progress(0);
+    screen.status("This copy was loaded by hand, so the browser can't replace it by itself. Download the new version and load it the same way.");
+    screen.actions(
+      button(`Download ${info.version}`, () => ext.tabs.create({ url: info.page || `https://github.com/${S.REPO}/releases/latest` }), true),
+      button("Later", () => { screen.hide(); setUpdateState("updating", `get ${info.version}`); }),
+    );
+    return;
   }
-  // "store" + "xpi": the browser installs it, Kerosene reloads, Octane tabs refresh
+
+  if (kind === "store") {
+    screen.status("Your browser is fetching it from the web store…");
+    const res = await port.ask({ type: "store" }, "store");
+    if (res.status === "update_available") return screen.status("Installing… Kerosene restarts in a moment.");
+    screen.fail(`Version ${info.version} isn't through the web store yet. Your browser will update Kerosene by itself once it is.`);
+    return;
+  }
+
+  // Firefox / Zen: download the signed file, then hand it to Firefox
+  screen.status("Downloading…");
+  screen.progress(0);
+  port.onProgress = (loaded, total) => {
+    screen.progress(total ? loaded / total : null);
+    screen.status(`Downloading… **${Math.round(loaded / 1024)}**${total ? ` / ${Math.round(total / 1024)}` : ""} KB`);
+  };
+  const [here] = await ext.tabs.query({ active: true, currentWindow: true }).catch(() => []);
+  const origin = { tabId: here?.id ?? null, windowId: here?.windowId ?? null };
+  const res = await port.ask({ type: "stage", info, origin }, "staged");
+  if (res.type === "error") return screen.fail(res.error, button("Try again", () => { screen.hide(); setUpdateState("idle"); checkForUpdate(); }, true));
+  screen.progress(1);
+
+  const open = () => {
+    port.postMessage({ type: "opening", info });
+    const w = window.open(res.url, "kerosene-update", "popup,width=460,height=640");
+    if (!w) return screen.fail("Firefox blocked the update window. Allow pop-ups for Kerosene and try again.");
+    screen.progress(null);
+    screen.status("Firefox opens a small Kerosene window and asks twice: **Continue to Installation**, then **Add**.");
+  };
+  if (Date.now() - clickedAt < 4500) return open();
+  // took too long: Firefox wants a fresh click
+  screen.status(`Downloaded **${Math.round(res.size / 1024)} KB**. One more click to install.`);
+  screen.actions(button(`Install ${info.version}`, open, true));
 }
 
+// Opened right after an update: the screen picks up where the old version
+// left off and refreshes into the new one.
 async function renderJustUpdated() {
   const { justUpdated } = await ext.storage.local.get("justUpdated");
-  if (justUpdated && Date.now() - justUpdated.at < 10 * 60 * 1000) {
-    setUpdateState("latest", `updated to ${justUpdated.to}`, `Updated from ${justUpdated.from} to ${justUpdated.to}`);
-    ext.storage.local.remove("justUpdated");
-  }
+  if (!justUpdated || justUpdated.popupShown || Date.now() - justUpdated.at > 10 * 60 * 1000) return;
+  // (left in storage for a little while: reloading Octane tabs read it too)
+  ext.storage.local.set({ justUpdated: { ...justUpdated, popupShown: true } });
+  setUpdateState("latest", `updated to ${justUpdated.to}`, `Updated from ${justUpdated.from} to ${justUpdated.to}`);
+  if (!justUpdated.asked || Date.now() - justUpdated.at > 2 * 60 * 1000) return;
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  screen.show(justUpdated.from, justUpdated.to, "Updating Kerosene");
+  screen.status("Installed. Loading the new version…");
+  screen.progress(null);
+  await sleep(reduced ? 200 : 650);
+  screen.progress(1);
+  screen.el().classList.add("done");
+  $("us-title").textContent = `Kerosene ${justUpdated.to}`;
+  screen.status("Updated and ready.");
+  field?.ripple?.();
+  await sleep(reduced ? 300 : 1300);
+  document.body.classList.add("refreshed");
+  screen.el().classList.add("out");
+  await sleep(reduced ? 0 : 600);
+  screen.hide();
 }
 
 // ---------- settings ----------

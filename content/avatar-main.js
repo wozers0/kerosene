@@ -25,8 +25,13 @@
   ];
   const TYPE_NAMES = {};
   for (const row of ROWS) for (const [, label, type] of row.menus) if (type) TYPE_NAMES[type] = label;
-  // How many of each type an avatar can wear at once (Roblox 2021 rules)
-  const LIMITS = { 8: 3, 61: 8 };
+  // How many of each type an avatar can wear at once. These are Octane's
+  // avatar rules (refreshed from /avatar/v1/avatar-rules at start): up to 10
+  // of each accessory type and 10 accessories in all, 8 emotes, 1 of the rest.
+  const ACCESSORIES = new Set([8, 41, 42, 43, 44, 45, 46, 47]);
+  const LIMITS = { 61: 8 };
+  for (const t of ACCESSORIES) LIMITS[t] = 10;
+  let maxAccessories = 10;
   const limitOf = (type) => LIMITS[type] || 1;
   // Try-on renders the item on your own avatar; these types have nothing to show
   const NO_TRY_ON = new Set([32, 61]);
@@ -102,7 +107,7 @@
 
   async function getJson(path) {
     const r = await request(path);
-    if (!r.ok) throw Object.assign(new Error(throttled(r) ? "Octane is rate limiting, try again in a moment" : `HTTP ${r.status}`), { status: r.status });
+    if (!r.ok) throw Object.assign(new Error(throttled(r) ? "Octane is rate limiting, try again in a moment" : `HTTP ${r.status}`), { status: r.status, throttled: throttled(r) });
     return r.json();
   }
 
@@ -225,6 +230,13 @@
       s.need = Math.max(0, s.cost - (sb.balance.robux || 0));
       s.tixNeed = Math.max(0, s.tix - (sb.balance.tickets || 0));
     }
+    // one word for the "Still need" box and the saved-outfit cards
+    s.state = !s.count ? "empty"
+      : !s.toBuy ? (s.unbuyable ? "offsale" : "owned")
+      : !sb.balance ? "unknown"
+      : s.need > 0 ? "short"
+      : s.tixNeed > 0 ? "tix"
+      : "ok";
     return s;
   }
 
@@ -297,24 +309,50 @@
     }, { rootMargin: "0px 0px 600px 0px" });
     sentinelObserver.observe(el);
   }
+  function sentinelOnScreen() {
+    const el = document.querySelector("#kero-sandbox .kero-sb-sentinel");
+    if (!el || document.visibilityState !== "visible") return false;
+    try {
+      // same-origin frame: measure against the page that actually scrolls
+      const frame = window.frameElement;
+      const top = el.getBoundingClientRect().top + (frame ? frame.getBoundingClientRect().top : 0);
+      const height = frame ? window.parent.innerHeight : window.innerHeight;
+      return el.offsetParent !== null && top < height + 600;
+    } catch {
+      return sentinelVisible;
+    }
+  }
   function checkSentinel() {
-    if (sentinelVisible) loadMore();
+    if (sentinelOnScreen()) loadMore();
   }
 
   // ---------- wearing ----------
   function wear(item) {
     const it = snapshot(fresh(item));
     let items = sb.draft.items.filter((w) => w.id !== it.id);
-    const same = items.filter((w) => w.type === it.type);
-    // over the limit for this slot: the oldest one comes off
-    if (same.length >= limitOf(it.type)) {
-      const drop = new Set(same.slice(0, same.length - limitOf(it.type) + 1).map((w) => w.id));
-      items = items.filter((w) => !drop.has(w.id));
-    }
+    const dropped = [];
+    // over a limit: the oldest ones come off, like in the real editor
+    const makeRoom = (match, limit) => {
+      const same = items.filter(match);
+      if (same.length < limit) return;
+      const drop = same.slice(0, same.length - limit + 1);
+      dropped.push(...drop);
+      items = items.filter((w) => !drop.includes(w));
+    };
+    makeRoom((w) => w.type === it.type, limitOf(it.type));
+    if (ACCESSORIES.has(it.type)) makeRoom((w) => ACCESSORIES.has(w.type), maxAccessories);
     items.push(it);
     sb.draft.items = items;
     changed();
     focus(it);
+    if (dropped.length) toast(`Took off ${dropped.map((w) => w.name).join(", ")} to make room`);
+  }
+
+  async function loadRules() {
+    try {
+      const rules = await getJson("/avatar/v1/avatar-rules");
+      for (const w of rules.wearableAssetTypes || []) if (w.id && w.maxNumber > 0) LIMITS[w.id] = w.maxNumber;
+    } catch { /* keep the defaults */ }
   }
 
   function takeOff(item) {
@@ -384,25 +422,27 @@
   // ---------- your stuff ----------
   const WEARABLE = [2, 8, 11, 12, 17, 18, 19, 27, 28, 29, 30, 31, 32, 41, 42, 43, 44, 45, 46, 47, 48, 50, 51, 52, 53, 54, 55, 56, 61];
 
+  let ownedRetry = 0;
   async function loadOwned() {
     if (!sb.viewerId) return;
+    const owned = new Set(sb.owned || []);
+    let complete = false;
     try {
-      const owned = new Set();
       let cursor = "";
-      for (let page = 0; page < 50; page++) {
+      for (let page = 0; page < 100; page++) {
         const res = await getJson(`/inventory/v2/users/${sb.viewerId}/inventory?assetTypes=${WEARABLE.join(",")}&limit=100&sortOrder=Desc${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`);
         for (const it of res.data || []) owned.add(it.assetId);
         cursor = res.nextPageCursor;
-        if (!cursor) break;
+        if (!cursor) { complete = true; break; }
       }
-      if (sb.owned) for (const id of sb.owned) owned.add(id);
-      sb.owned = owned;
-      sb.ownedComplete = true;
-    } catch {
-      // private inventory without a session: fall back to per-item checks
-      sb.owned = sb.owned || new Set();
-      checkOwnership(sb.draft.items);
+    } catch (err) {
+      // rate limited: try the whole list again later; private: per-item checks
+      if (err.throttled && ownedRetry < 3) setTimeout(loadOwned, 30000 * 2 ** ownedRetry++);
     }
+    sb.owned = owned;
+    sb.ownedComplete = complete;
+    if (complete) ownedRetry = 0;
+    else checkOwnership([...new Map([...sb.draft.items, ...sb.outfits.flatMap((o) => o.items)].map((i) => [i.id, i])).values()].slice(0, 60));
     refreshSums();
     apply();
   }
@@ -417,7 +457,9 @@
       try {
         const res = await getJson(`/inventory/v1/users/${sb.viewerId}/items/Asset/${it.id}`);
         if ((res.data || []).length) { sb.owned.add(it.id); refreshSums(); apply(); }
-      } catch { /* leave as not owned */ }
+      } catch {
+        checked.delete(it.id); // ask again next time
+      }
     }
   }
 
@@ -426,8 +468,9 @@
     try {
       const res = await getJson(`/economy/v1/users/${sb.viewerId}/currency`);
       sb.balance = { robux: res.robux || 0, tickets: res.tickets || 0 };
-    } catch {
-      sb.balance = null;
+    } catch (err) {
+      // only a real "not signed in" clears it; a rate limit or blip keeps the last one
+      if (!err.throttled && (err.status === 401 || err.status === 403)) sb.balance = null;
     }
     refreshSums();
     apply();
@@ -447,9 +490,18 @@
     } catch { /* keep the saved prices */ }
   }
 
+  // Replacing an outfit that isn't saved yet asks first
+  const unsaved = () => sb.draft.items.length && (sb.dirty || !sb.draft.id);
+  function guard(text, run) {
+    if (!unsaved()) return run();
+    sb.confirm = { text, run };
+    apply();
+  }
+
   // Start from what you're wearing for real
-  async function copyAvatar() {
+  async function copyAvatar(confirmed) {
     if (!sb.viewerId) return;
+    if (!confirmed) return guard("Replace your unsaved sandbox outfit with what you're wearing?", () => copyAvatar(true));
     try {
       const av = await getJson(`/avatar/v1/users/${sb.viewerId}/avatar`);
       const ids = (av.assets || []).map((a) => a.id);
@@ -520,7 +572,8 @@
     apply();
   }
 
-  function load(o) {
+  function load(o, confirmed) {
+    if (!confirmed && sb.draft.id !== o.id) return guard(`Replace your unsaved sandbox outfit with "${o.name}"?`, () => load(o, true));
     sb.draft = { id: o.id, name: o.name, items: o.items.map(snapshot) };
     sb.dirty = false;
     sb.menuFor = null;
@@ -594,55 +647,57 @@
   const CSS = `
     /* six tabs instead of five (below 992px Octane makes the row scroll) */
     @media (min-width: 992px) { #avatar-container #horizontal-tabs > li.rbx-tab { width: 16.666%; } }
-    #kerosene-sandbox .items-list.avatar-item-list .item-card { height: auto; min-height: 210px; }
-    #kerosene-sandbox .item-card-thumb-container { cursor: pointer; position: relative; }
-    #kerosene-sandbox .item-card-price { height: auto; min-height: 20px; margin-bottom: 4px; }
-    #kerosene-sandbox .kero-sb-owned { position: absolute; top: 4px; left: 4px; font-size: 10px; font-weight: 600; letter-spacing: .3px; text-transform: uppercase; padding: 1px 5px; border-radius: 4px; background: #02b757; color: #fff; }
-    #kerosene-sandbox .kero-sb-off { font-size: 13px; }
-    #kerosene-sandbox .kero-sb-tag { font-size: 10px; text-transform: uppercase; letter-spacing: .3px; opacity: .6; margin-left: 4px; }
-    #kerosene-sandbox .kero-sb-tix { display: inline-block; font-size: 10px; font-weight: 700; border: 1.5px solid currentColor; border-radius: 3px; padding: 0 2px; margin-right: 3px; line-height: 13px; vertical-align: middle; opacity: .75; }
+    #kero-sandbox .items-list.avatar-item-list .item-card { height: auto; min-height: 210px; }
+    #kero-sandbox .item-card-thumb-container { cursor: pointer; position: relative; }
+    #kero-sandbox .item-card-price { height: auto; min-height: 20px; margin-bottom: 4px; }
+    #kero-sandbox .kero-sb-owned { position: absolute; top: 4px; left: 4px; font-size: 10px; font-weight: 600; letter-spacing: .3px; text-transform: uppercase; padding: 1px 5px; border-radius: 4px; background: #02b757; color: #fff; }
+    #kero-sandbox .kero-sb-off { font-size: 13px; }
+    #kero-sandbox .kero-sb-tag { font-size: 10px; text-transform: uppercase; letter-spacing: .3px; opacity: .6; margin-left: 4px; }
+    #kero-sandbox .kero-sb-tix { display: inline-block; font-size: 10px; font-weight: 700; border: 1.5px solid currentColor; border-radius: 3px; padding: 0 2px; margin-right: 3px; line-height: 13px; vertical-align: middle; opacity: .75; }
 
-    #kerosene-sandbox .kero-sb-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; margin-bottom: 8px; }
-    #kerosene-sandbox .kero-sb-name { font-weight: 600; font-size: 16px; }
-    #kerosene-sandbox .kero-sb-name small { font-weight: 400; font-size: 12px; opacity: .6; margin-left: 6px; }
-    #kerosene-sandbox .kero-sb-actions { display: flex; flex-wrap: wrap; gap: 6px; }
-    #kerosene-sandbox .kero-sb-actions button { min-width: 0; padding: 5px 9px; }
-    #kerosene-sandbox .kero-sb-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 6px; margin-bottom: 8px; }
-    #kerosene-sandbox .kero-sb-stat { border-radius: 8px; padding: 7px 10px; background: rgba(127,127,127,.12); }
-    #kerosene-sandbox .kero-sb-stat > span { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .4px; opacity: .65; }
-    #kerosene-sandbox .kero-sb-stat b { display: block; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    #kerosene-sandbox .kero-sb-stat b.txt { white-space: normal; font-size: 13px; line-height: 1.25; }
-    #kerosene-sandbox .kero-sb-stat .icon-robux-16x16 { margin: -2px 1px 0 0; }
-    #kerosene-sandbox .kero-sb-stat.need b { color: #e2231a; }
-    #kerosene-sandbox .kero-sb-stat.ok b { color: #02b757; }
-    #kerosene-sandbox .kero-sb-note { font-size: 12px; opacity: .7; margin: -2px 0 8px; }
-    #kerosene-sandbox .kero-sb-worn { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; margin: 0 0 10px; padding: 0; }
-    #kerosene-sandbox .kero-sb-worn li { position: relative; width: 52px; height: 52px; border-radius: 6px; overflow: hidden; cursor: pointer; background: rgba(127,127,127,.18); outline: 2px solid transparent; outline-offset: -2px; }
-    #kerosene-sandbox .kero-sb-worn li.focused { outline-color: #00a2ff; }
-    #kerosene-sandbox .kero-sb-worn li .thumbnail-2d-container, #kerosene-sandbox .kero-sb-worn li img { width: 52px; height: 52px; }
-    #kerosene-sandbox .kero-sb-x { position: absolute; top: 1px; right: 1px; width: 17px; height: 17px; padding: 0; border: 0; border-radius: 50%; background: rgba(0,0,0,.6); color: #fff; font-size: 13px; line-height: 17px; text-align: center; cursor: pointer; }
-    #kerosene-sandbox .kero-sb-filters { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; margin-bottom: 10px; }
-    #kerosene-sandbox .kero-sb-filters input[type=search] { flex: 1 1 180px; min-width: 0; height: 32px; }
-    #kerosene-sandbox .kero-sb-filters select { flex: 0 1 190px; height: 32px; padding: 0 8px; }
-    #kerosene-sandbox .kero-sb-filters label { display: flex; align-items: center; gap: 5px; margin: 0; font-weight: 400; font-size: 13px; cursor: pointer; white-space: nowrap; }
-    #kerosene-sandbox .kero-sb-filters label input { margin: 0; }
-    #kerosene-sandbox .kero-sb-msg { margin: 8px 0; }
-    #kerosene-sandbox .kero-sb-msg a { cursor: pointer; margin-left: 6px; }
-    #kerosene-sandbox .kero-sb-more { display: block; margin: 8px auto; }
-    #kerosene-sandbox .kero-sb-sentinel { height: 1px; }
+    #kero-sandbox .kero-sb-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; margin-bottom: 8px; }
+    #kero-sandbox .kero-sb-name { font-weight: 600; font-size: 16px; }
+    #kero-sandbox .kero-sb-name small { font-weight: 400; font-size: 12px; opacity: .6; margin-left: 6px; }
+    #kero-sandbox .kero-sb-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+    #kero-sandbox .kero-sb-actions button { min-width: 0; padding: 5px 9px; }
+    #kero-sandbox .kero-sb-confirm { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; margin-bottom: 8px; padding: 8px 10px; border-radius: 8px; background: rgba(246, 136, 30, .14); border: 1px solid rgba(246, 136, 30, .45); font-size: 13px; }
+    #kero-sandbox .kero-sb-confirm-btns { display: flex; gap: 6px; }
+    #kero-sandbox .kero-sb-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 6px; margin-bottom: 8px; }
+    #kero-sandbox .kero-sb-stat { border-radius: 8px; padding: 7px 10px; background: rgba(127,127,127,.12); }
+    #kero-sandbox .kero-sb-stat > span { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .4px; opacity: .65; }
+    #kero-sandbox .kero-sb-stat b { display: block; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #kero-sandbox .kero-sb-stat b.txt { white-space: normal; font-size: 13px; line-height: 1.25; }
+    #kero-sandbox .kero-sb-stat .icon-robux-16x16 { margin: -2px 1px 0 0; }
+    #kero-sandbox .kero-sb-stat.need b { color: #e2231a; }
+    #kero-sandbox .kero-sb-stat.ok b { color: #02b757; }
+    #kero-sandbox .kero-sb-note { font-size: 12px; opacity: .7; margin: -2px 0 8px; }
+    #kero-sandbox .kero-sb-worn { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; margin: 0 0 10px; padding: 0; }
+    #kero-sandbox .kero-sb-worn li { position: relative; width: 52px; height: 52px; border-radius: 6px; overflow: hidden; cursor: pointer; background: rgba(127,127,127,.18); outline: 2px solid transparent; outline-offset: -2px; }
+    #kero-sandbox .kero-sb-worn li.focused { outline-color: #00a2ff; }
+    #kero-sandbox .kero-sb-worn li .thumbnail-2d-container, #kero-sandbox .kero-sb-worn li img { width: 52px; height: 52px; }
+    #kero-sandbox .kero-sb-x { position: absolute; top: 1px; right: 1px; width: 17px; height: 17px; padding: 0; border: 0; border-radius: 50%; background: rgba(0,0,0,.6); color: #fff; font-size: 13px; line-height: 17px; text-align: center; cursor: pointer; }
+    #kero-sandbox .kero-sb-filters { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; margin-bottom: 10px; }
+    #kero-sandbox .kero-sb-filters input[type=search] { flex: 1 1 180px; min-width: 0; height: 32px; }
+    #kero-sandbox .kero-sb-filters select { flex: 0 1 190px; height: 32px; padding: 0 8px; }
+    #kero-sandbox .kero-sb-filters label { display: flex; align-items: center; gap: 5px; margin: 0; font-weight: 400; font-size: 13px; cursor: pointer; white-space: nowrap; }
+    #kero-sandbox .kero-sb-filters label input { margin: 0; }
+    #kero-sandbox .kero-sb-msg { margin: 8px 0; }
+    #kero-sandbox .kero-sb-msg a { cursor: pointer; margin-left: 6px; }
+    #kero-sandbox .kero-sb-more { display: block; margin: 8px auto; }
+    #kero-sandbox .kero-sb-sentinel { height: 1px; }
 
-    #kerosene-sandbox .kero-sb-collage { display: grid !important; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 2px; padding: 4px; }
-    #kerosene-sandbox .kero-sb-collage .thumbnail-2d-container, #kerosene-sandbox .kero-sb-collage img { width: 100%; height: 100%; }
-    #kerosene-sandbox .kero-sb-need { font-size: 12px; font-weight: 600; padding: 0 5px 4px; }
-    #kerosene-sandbox .kero-sb-left { font-size: 12px; padding: 0 5px; opacity: .8; }
-    #kerosene-sandbox .kero-sb-need .icon-robux-16x16, #kerosene-sandbox .kero-sb-left .icon-robux-16x16 { transform: scale(.8); margin: -2px 0 0 1px; }
-    #kerosene-sandbox .kero-sb-need.short { color: #e2231a; }
-    #kerosene-sandbox .kero-sb-need.ok { color: #02b757; }
-    #kerosene-sandbox .kero-sb-ocard .item-card-container { position: relative; }
-    #kerosene-sandbox .kero-sb-gear { position: absolute; top: 6px; right: 6px; z-index: 2; cursor: pointer; }
-    #kerosene-sandbox .kero-sb-menu { position: absolute; top: 28px; right: 4px; z-index: 3; display: flex; flex-direction: column; gap: 4px; padding: 6px; border-radius: 8px; background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,.25); }
-    .dark-theme #kerosene-sandbox .kero-sb-menu { background: #232527; }
-    #kerosene-sandbox .kero-sb-menu button { min-width: 84px; }
+    #kero-sandbox .kero-sb-collage { display: grid !important; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 2px; padding: 4px; }
+    #kero-sandbox .kero-sb-collage .thumbnail-2d-container, #kero-sandbox .kero-sb-collage img { width: 100%; height: 100%; }
+    #kero-sandbox .kero-sb-need { font-size: 12px; font-weight: 600; padding: 0 5px 4px; }
+    #kero-sandbox .kero-sb-left { font-size: 12px; padding: 0 5px; opacity: .8; }
+    #kero-sandbox .kero-sb-need .icon-robux-16x16, #kero-sandbox .kero-sb-left .icon-robux-16x16 { transform: scale(.8); margin: -2px 0 0 1px; }
+    #kero-sandbox .kero-sb-need.short { color: #e2231a; }
+    #kero-sandbox .kero-sb-need.ok { color: #02b757; }
+    #kero-sandbox .kero-sb-ocard .item-card-container { position: relative; }
+    #kero-sandbox .kero-sb-gear { position: absolute; top: 6px; right: 6px; z-index: 2; cursor: pointer; }
+    #kero-sandbox .kero-sb-menu { position: absolute; top: 28px; right: 4px; z-index: 3; display: flex; flex-direction: column; gap: 4px; padding: 6px; border-radius: 8px; background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,.25); }
+    .dark-theme #kero-sandbox .kero-sb-menu { background: #232527; }
+    #kero-sandbox .kero-sb-menu button { min-width: 84px; }
 
     /* covers the editor's own preview (.avatar-back is 277x352; the native
        352px render sits 37px to the left inside it) */
@@ -684,7 +739,7 @@
     </div>`;
 
   const PANE = `
-  <div class="tab-pane" id="kerosene-sandbox" ng-class="{active: selectedTab.name === '${TAB}'}">
+  <div class="tab-pane" id="kero-sandbox" ng-class="{active: selectedTab.name === '${TAB}'}">
     <div class="kero-sb-head">
       <div class="kero-sb-name">{{sb.draft.name || 'Sandbox outfit'}}<small ng-if="sb.dirty && sb.draft.id">unsaved changes</small><small ng-if="!sb.draft.id && sb.draft.items.length">not saved yet</small></div>
       <div class="kero-sb-actions">
@@ -695,15 +750,28 @@
       </div>
     </div>
 
+    <div class="kero-sb-confirm" ng-if="sb.confirm">
+      <span>{{sb.confirm.text}}</span>
+      <span class="kero-sb-confirm-btns">
+        <button type="button" class="btn-control-xs" ng-click="sbConfirm('save')">Save it first</button>
+        <button type="button" class="btn-alert-xs" ng-click="sbConfirm('replace')">Replace</button>
+        <button type="button" class="btn-control-xs" ng-click="sbConfirm()">Cancel</button>
+      </span>
+    </div>
+
     <div class="kero-sb-stats">
       <div class="kero-sb-stat"><span>Items</span><b>{{sb.sum.count}}</b></div>
       <div class="kero-sb-stat"><span>Outfit worth</span><b><span class="icon-robux-16x16"></span> {{sb.sum.total | number}}</b></div>
       <div class="kero-sb-stat"><span>Left to buy</span><b><span class="icon-robux-16x16"></span> {{sb.sum.cost | number}}</b></div>
       <div class="kero-sb-stat"><span>You have</span><b ng-if="sb.balance"><span class="icon-robux-16x16"></span> {{sb.balance.robux | number}}</b><b ng-if="!sb.balance">&ndash;</b></div>
-      <div class="kero-sb-stat" ng-class="{need: sb.sum.need > 0, ok: sb.sum.need === 0}"><span>Still need</span>
-        <b ng-if="sb.sum.need > 0"><span class="icon-robux-16x16"></span> {{sb.sum.need | number}}</b>
-        <b class="txt" ng-if="sb.sum.need === 0">{{sb.sum.cost ? 'You can afford it' : (sb.sum.count ? 'Nothing to buy' : '0')}}</b>
-        <b ng-if="sb.sum.need === null">&ndash;</b>
+      <div class="kero-sb-stat" ng-class="{need: sb.sum.state === 'short' || sb.sum.state === 'tix', ok: sb.sum.state === 'ok' || sb.sum.state === 'owned'}" ng-switch="sb.sum.state"><span>Still need</span>
+        <b ng-switch-when="short"><span class="icon-robux-16x16"></span> {{sb.sum.need | number}}</b>
+        <b ng-switch-when="tix">{{sb.sum.tixNeed | number}} Tix</b>
+        <b class="txt" ng-switch-when="ok">You can afford it</b>
+        <b class="txt" ng-switch-when="owned">You own all of it</b>
+        <b class="txt" ng-switch-when="offsale">Nothing for sale</b>
+        <b ng-switch-when="empty">0</b>
+        <b ng-switch-default>&ndash;</b>
       </div>
     </div>
     <div class="kero-sb-note" ng-if="sb.sum.owned || sb.sum.tix || sb.sum.unbuyable || !sb.balance">
@@ -763,13 +831,15 @@
                 <div title="{{o.name}}" class="text-overflow item-card-name">{{o.name}}</div>
                 <div class="text-overflow item-card-price" title="Whole outfit"><span class="icon-robux-16x16"></span><span class="text-robux-tile">{{o.sum.total | number}}</span> <span class="kero-sb-tag">{{o.items.length}} {{o.items.length === 1 ? 'item' : 'items'}}</span></div>
                 <div class="text-overflow kero-sb-left" ng-if="o.sum.owned && o.sum.cost" title="What you don't own yet">Left to buy <span class="icon-robux-16x16"></span>{{o.sum.cost | number}}</div>
-                <div class="kero-sb-need" ng-class="{short: o.sum.need > 0, ok: o.sum.need === 0}">
-                  <span ng-if="o.sum.need > 0">Need <span class="icon-robux-16x16"></span>{{o.sum.need | number}} more</span>
-                  <span ng-if="o.sum.need === 0 && o.sum.cost > 0">You can afford it</span>
-                  <span ng-if="!o.sum.cost && !o.sum.unbuyable && o.sum.owned">You own all of it</span>
-                  <span ng-if="o.sum.need === null && o.sum.cost > 0">{{o.sum.cost | number}} left to buy</span>
-                  <span ng-if="o.sum.unbuyable" class="kero-sb-tag">{{o.sum.unbuyable}} off sale</span>
+                <div class="kero-sb-need" ng-class="{short: o.sum.state === 'short' || o.sum.state === 'tix', ok: o.sum.state === 'ok' || o.sum.state === 'owned'}" ng-switch="o.sum.state">
+                  <span ng-switch-when="short">Need <span class="icon-robux-16x16"></span>{{o.sum.need | number}} more</span>
+                  <span ng-switch-when="tix">Need {{o.sum.tixNeed | number}} more Tix</span>
+                  <span ng-switch-when="ok">You can afford it</span>
+                  <span ng-switch-when="owned">You own all of it</span>
+                  <span ng-switch-when="offsale">Nothing for sale</span>
+                  <span ng-switch-when="unknown">{{o.sum.cost | number}} left to buy</span>
                 </div>
+                <div class="kero-sb-left" ng-if="o.sum.tix || o.sum.unbuyable"><span ng-if="o.sum.tix">+{{o.sum.tix | number}} Tix </span><span ng-if="o.sum.unbuyable">&middot; {{o.sum.unbuyable}} off sale</span></div>
               </div>
             </div>
           </li>
@@ -801,7 +871,7 @@
     const $rootScope = injector.get("$rootScope");
 
     const style = document.createElement("style");
-    style.id = "kerosene-sandbox-css";
+    style.id = "kero-sandbox-css";
     style.textContent = CSS;
     document.head.appendChild(style);
 
@@ -842,6 +912,16 @@
     scope.sbLoad = load;
     scope.sbRename = rename;
     scope.sbRemove = remove;
+    scope.sbConfirm = async (choice) => {
+      const pending = sb.confirm;
+      sb.confirm = null;
+      if (!pending || !choice) return apply();
+      if (choice === "save") {
+        await save(false);
+        if (sb.dirty || !sb.draft.id) return apply(); // they cancelled the name box
+      }
+      pending.run();
+    };
 
     const pane = $compile(PANE)(scope);
     window.angular.element(document.querySelector("[avatar-tab-content]")).append(pane);
@@ -876,13 +956,31 @@
     });
   }
 
+  // Turned off from the popup: hide the tab (and go back to a native one)
+  function setEnabled(on) {
+    if (!tabRef) return;
+    tabRef.visible = on;
+    if (!on) {
+      sb.focused = null;
+      sb.confirm = null;
+      if (ctrlScope?.selectedTab === tabRef) {
+        const first = injector.get("avatarConstantService").tabs.find((t) => t !== tabRef && t.visible !== false);
+        if (first) ctrlScope.onMenuClick(first, first.subCategoryMenu?.[0] || null);
+      }
+    }
+    apply();
+  }
+
+  let enableWaiter = null;
   async function start() {
     // the extension side answers once its storage is loaded
     let init = null;
     for (let i = 0; i < 20 && !init; i++) {
       try { init = await call("init", null, 1500); } catch { await sleep(250); }
     }
-    if (!init || !init.enabled) return;
+    if (!init) return;
+    // switched off: wait here in case it's switched back on
+    if (!init.enabled) await new Promise((resolve) => { enableWaiter = resolve; });
     if (!sb.viewerId && init.viewer?.id) sb.viewerId = init.viewer.id;
     sb.outfits = (init.outfits || []).filter((o) => o && Array.isArray(o.items));
     if (init.draft && Array.isArray(init.draft.items)) {
@@ -895,13 +993,14 @@
     if (!(await whenEditorReady())) return;
     inject();
     sb.ready = true;
+    loadRules();
     loadOwned();
     loadBalance();
     refreshPrices();
     if (sb.draft.items.length) focus(sb.draft.items[sb.draft.items.length - 1]);
   }
 
-  // Outfits saved in another tab
+  // From the extension: outfits saved in another tab, or the Sandbox switch
   document.addEventListener("kerosene:sandbox-push", (e) => {
     let msg;
     try { msg = JSON.parse(e.detail); } catch { return; }
@@ -910,14 +1009,23 @@
       refreshSums();
       apply();
     }
+    if (typeof msg.enabled === "boolean") {
+      if (msg.enabled && enableWaiter) { enableWaiter(); enableWaiter = null; }
+      else setEnabled(msg.enabled);
+    }
   });
 
-  // Octane frames post this after a purchase; your balance and items changed
-  window.addEventListener("message", (e) => {
-    if (e.data?.source === "octane-currency" && sb.ready) { loadBalance(); checked.clear(); sb.ownedComplete = false; loadOwned(); }
-  });
+  // Back from another tab (maybe after buying something): refresh your
+  // balance and what you own, at most every 30 seconds
+  let lastRefresh = 0;
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible" && sb.ready) loadBalance();
+    if (document.visibilityState !== "visible" || !sb.ready) return;
+    checkSentinel();
+    if (Date.now() - lastRefresh < 30000) return;
+    lastRefresh = Date.now();
+    loadBalance();
+    checked.clear();
+    loadOwned();
   });
 
   start();

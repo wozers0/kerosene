@@ -124,36 +124,179 @@ function onTick() {
 
 // ---------- updates ----------
 const IS_FIREFOX = typeof globalThis.browser?.runtime?.getBrowserInfo === "function";
+const UPDATER_PAGE = "update/update.html";
 
-// A newer signed version is ready: apply it now instead of waiting for a restart.
+// Firefox's own daily check found a signed update: apply it now instead of
+// waiting for a browser restart.
 ext.runtime.onUpdateAvailable?.addListener(() => ext.runtime.reload());
 
-// After an update: remember it for the popup and refresh open Octane tabs so
-// they load the new version.
-async function afterUpdate(previousVersion) {
-  await ext.storage.local.set({
-    justUpdated: { from: previousVersion, to: ext.runtime.getManifest().version, at: Date.now() },
-  });
-  const tabs = await ext.tabs.query({ url: ["https://octane.wtf/*", "https://*.octane.wtf/*"] }).catch(() => []);
-  for (const t of tabs) ext.tabs.reload(t.id).catch(() => {});
+// How this copy can update itself:
+//   firefox  signed install in Firefox/Zen: Kerosene downloads the signed .xpi
+//            and hands it to Firefox's installer (Firefox asks the user twice)
+//   store    installed from a web store: the browser fetches it
+//   manual   loaded unpacked / temporarily: the user replaces the files
+async function updateKind() {
+  const self = await ext.management?.getSelf?.().catch(() => null);
+  if (!self || self.installType === "development") return "manual";
+  if (IS_FIREFOX) return "firefox";
+  return typeof ext.runtime.requestUpdateCheck === "function" ? "store" : "manual";
 }
 
-// Install a newer release. Store / signed installs update in place; a
-// developer (unpacked or temporary) install can't replace its own files.
-async function applyUpdate(info) {
-  const self = await ext.management?.getSelf?.().catch(() => null);
-  const dev = !self || self.installType === "development";
-  if (!dev && !IS_FIREFOX && typeof ext.runtime.requestUpdateCheck === "function") {
-    const res = await ext.runtime.requestUpdateCheck();
-    const status = res?.status || res?.[0] || res; // promise form or [status, details]
-    return { mode: "store", status }; // "update_available" -> onUpdateAvailable reloads us
+// The signed .xpi of a release, downloaded and kept as an installable blob.
+// It lives here rather than in the popup, which closes as soon as Firefox's
+// installer window takes focus.
+let staged = null; // { version, url, size, at }
+
+async function sha256(buf) {
+  const d = await crypto.subtle.digest("SHA-256", buf);
+  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function download(url, onProgress) {
+  const res = await fetch(url, { cache: "no-store", credentials: "omit" });
+  if (!res.ok) throw new Error(`download failed (HTTP ${res.status})`);
+  const total = Number(res.headers.get("content-length")) || 0;
+  if (!res.body?.getReader) return new Uint8Array(await res.arrayBuffer());
+  const reader = res.body.getReader();
+  const parts = [];
+  let loaded = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    parts.push(value);
+    loaded += value.byteLength;
+    onProgress?.(loaded, total);
   }
-  if (!dev && IS_FIREFOX && info.firefox) {
-    await ext.tabs.create({ url: info.firefox }); // Firefox shows its "update Kerosene?" prompt
-    return { mode: "xpi" };
+  const out = new Uint8Array(loaded);
+  let at = 0;
+  for (const part of parts) { out.set(part, at); at += part.byteLength; }
+  return out;
+}
+
+async function stageUpdate(info, onProgress) {
+  if (staged && staged.version === info.version && Date.now() - staged.at < 30 * 60 * 1000) return staged;
+  // the raw copy in the repo is the same signed file as the release asset, and
+  // raw.githubusercontent.com allows extension fetches (release downloads don't)
+  const base = info.firefox_xpi || `https://raw.githubusercontent.com/${S.REPO}/main/dist/kerosene-firefox.xpi`;
+  let buf;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    // a fresh query string per try gets past a stale CDN copy
+    buf = await download(`${base}?v=${encodeURIComponent(info.version)}${attempt ? `&t=${Date.now()}` : ""}`, (l, t) => onProgress?.(l, t || info.firefox_size || 0));
+    if (!info.firefox_sha256 || (await sha256(buf)) === info.firefox_sha256) break;
+    if (attempt) throw new Error("the download didn't match the release; try again in a minute");
   }
-  await ext.tabs.create({ url: info.page || `https://github.com/${S.REPO}/releases/latest` });
-  return { mode: "manual" };
+  if (staged?.url) URL.revokeObjectURL(staged.url);
+  staged = {
+    version: info.version,
+    url: URL.createObjectURL(new Blob([buf], { type: "application/x-xpinstall" })),
+    size: buf.byteLength,
+    at: Date.now(),
+  };
+  return staged;
+}
+
+// The popup opens the blob in a small window (a click is needed for Firefox
+// to accept it). That window starts blank; once Firefox has picked up the
+// file, it gets Kerosene's updater page instead.
+let installer = null; // { tabId, windowId }
+let expectInstaller = 0;
+let pending = null; // what the new version needs to finish the job (also in storage)
+
+// Firefox briefly refuses storage writes while its installer picks up the
+// file, so keep trying for a few seconds.
+async function persistPending() {
+  for (let i = 0; i < 12; i++) {
+    try {
+      await (pending ? ext.storage.local.set({ pendingUpdate: pending }) : ext.storage.local.remove("pendingUpdate"));
+      return;
+    } catch {
+      await new Promise((r) => setTimeout(r, 400));
+    }
+  }
+}
+
+ext.tabs.onCreated.addListener(async (tab) => {
+  if (!staged || Date.now() - expectInstaller > 20000) return;
+  pending = pending || (await ext.storage.local.get("pendingUpdate").catch(() => ({}))).pendingUpdate || null;
+  const win = await ext.windows.get(tab.windowId).catch(() => null);
+  if (win?.type !== "popup") return; // not ours (e.g. a new tab the user opened)
+  expectInstaller = 0;
+  installer = { tabId: tab.id, windowId: tab.windowId };
+  if (pending) { pending.windowId = tab.windowId; persistPending(); }
+  const q = new URLSearchParams({ from: ext.runtime.getManifest().version, to: staged.version });
+  setTimeout(() => ext.tabs.update(tab.id, { url: ext.runtime.getURL(`${UPDATER_PAGE}?${q}`) }).catch(() => {}), 700);
+});
+
+// Closing the installer window without updating: put the page back
+ext.windows.onRemoved.addListener(async (windowId) => {
+  if (installer?.windowId !== windowId) return;
+  installer = null;
+  const was = pending;
+  pending = null;
+  persistPending();
+  if (was?.tabId != null) ext.tabs.sendMessage(was.tabId, { type: "kerosene-update-screen", state: "hide" }).catch(() => {});
+});
+
+// The popup talks to the updater over a port so it can show download progress
+ext.runtime.onConnect.addListener((port) => {
+  if (port.name !== "kerosene-update") return;
+  port.onMessage.addListener(async (msg) => {
+    const send = (m) => { try { port.postMessage(m); } catch { /* popup closed */ } };
+    if (msg?.type === "kind") return send({ type: "kind", kind: await updateKind() });
+    if (msg?.type === "stage") {
+      // remember who asked (before Firefox's installer gets busy with storage)
+      const o = msg.origin || {};
+      pending = {
+        from: ext.runtime.getManifest().version, to: msg.info.version, at: Date.now(),
+        // only Octane pages (where Kerosene's page script runs) answer this tab's messages
+        tabId: o.tabId ?? null,
+        originWindowId: o.windowId ?? null,
+      };
+      persistPending();
+      try {
+        const s = await stageUpdate(msg.info, (loaded, total) => send({ type: "progress", loaded, total }));
+        expectInstaller = Date.now();
+        send({ type: "staged", url: s.url, size: s.size });
+      } catch (err) {
+        send({ type: "error", error: String(err?.message || err) });
+      }
+    }
+    if (msg?.type === "opening") {
+      expectInstaller = Date.now();
+      // the page you're on turns into Kerosene's loading screen meanwhile
+      if (pending?.tabId != null) {
+        ext.tabs.sendMessage(pending.tabId, { type: "kerosene-update-screen", state: "installing", from: pending.from, to: pending.to }).catch(() => {});
+      }
+    }
+    if (msg?.type === "store") {
+      const res = await ext.runtime.requestUpdateCheck();
+      send({ type: "store", status: res?.status || res?.[0] || res }); // "update_available" -> onUpdateAvailable reloads us
+    }
+  });
+});
+
+// After an update: tidy up, refresh open Octane tabs so they run the new
+// version, and (when the user started it) reopen the popup for the reveal.
+async function afterUpdate(previousVersion) {
+  const to = ext.runtime.getManifest().version;
+  const { pendingUpdate } = await ext.storage.local.get("pendingUpdate").catch(() => ({}));
+  const asked = Boolean(pendingUpdate && pendingUpdate.to === to && Date.now() - pendingUpdate.at < 30 * 60 * 1000);
+  for (let i = 0; i < 10; i++) {
+    try {
+      await ext.storage.local.set({ justUpdated: { from: previousVersion, to, at: Date.now(), asked } });
+      await ext.storage.local.remove("pendingUpdate");
+      break;
+    } catch {
+      await new Promise((r) => setTimeout(r, 300));
+    }
+  }
+  if (asked && pendingUpdate.windowId != null) await ext.windows.remove(pendingUpdate.windowId).catch(() => {});
+  const tabs = await ext.tabs.query({ url: ["https://octane.wtf/*", "https://*.octane.wtf/*"] }).catch(() => []);
+  for (const t of tabs) ext.tabs.reload(t.id).catch(() => {});
+  if (asked) {
+    if (pendingUpdate.originWindowId != null) await ext.windows.update(pendingUpdate.originWindowId, { focused: true }).catch(() => {});
+    setTimeout(() => { ext.action?.openPopup?.()?.catch?.(() => {}); }, 400);
+  }
 }
 
 ext.runtime.onInstalled.addListener((details) => {
@@ -180,8 +323,12 @@ ext.runtime.onMessage.addListener((msg, _sender, reply) => {
     pollFriends().then(reply, () => reply(null));
     return true;
   }
-  if (msg?.type === "apply-update") {
-    applyUpdate(msg.info || {}).then(reply, (err) => reply({ mode: "error", error: String(err.message || err) }));
+  if (msg?.type === "update-staged") {
+    reply(staged ? { url: staged.url, version: staged.version } : null);
+    return false;
+  }
+  if (msg?.type === "update-restage") {
+    stageUpdate(msg.info).then((s) => reply({ url: s.url, version: s.version }), (err) => reply({ error: String(err?.message || err) }));
     return true;
   }
   if (msg?.type === "get-values") {
