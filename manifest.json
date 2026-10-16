@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Kerosene",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Fuel for Octane - straight bullshit made by dad and claude!!!",
   "action": {
     "default_title": "Kerosene",
@@ -39,7 +39,8 @@
   "host_permissions": [
     "https://octane.wtf/*",
     "https://*.octane.wtf/*",
-    "https://octomons.wtf/*"
+    "https://octomons.wtf/*",
+    "https://raw.githubusercontent.com/*"
   ],
   "optional_host_permissions": [
     "https://*/*"

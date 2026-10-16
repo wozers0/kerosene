@@ -77,7 +77,20 @@
     return out;
   }
 
+  // The demo always "finds" one newer version so the update button can be tried.
+  const currentVersion = () => store.__demoVersion || DATA.version || "0.3.0";
+  const nextVersion = () => {
+    const p = String(DATA.version || "0.3.0").split(".").map(Number);
+    p[2] = (p[2] || 0) + 1;
+    return p.join(".");
+  };
+
   async function background(msg) {
+    if (msg?.type === "apply-update") {
+      await local.set({ justUpdated: { from: currentVersion(), to: msg.info.version, at: Date.now() }, __demoVersion: msg.info.version });
+      post({ type: "demo-reload", version: msg.info.version });
+      return { mode: "xpi" };
+    }
     if (msg?.type === "get-values") {
       return { items: clone(DATA.values || {}), updated: Date.now() - 2 * 60 * 1000 };
     }
@@ -114,7 +127,8 @@
   const ext = {
     runtime: {
       id: "kerosene-demo",
-      getManifest: () => ({ version: DATA.version || "0.3.0" }),
+      getManifest: () => ({ version: currentVersion() }),
+      onUpdateAvailable: { addListener() {} },
       getURL: (p) => p,
       sendMessage: (msg) => background(msg),
       onMessage: { addListener() {} },
@@ -128,6 +142,7 @@
       async create({ url }) { post({ type: "navigate", url }); },
     },
     permissions: { async contains() { return true; }, async request() { return true; } },
+    management: { async getSelf() { return { installType: "normal" }; } },
     action: { async setBadgeText() {}, async setBadgeBackgroundColor() {} },
     notifications: {
       create(_id, opts) { post({ type: "toast", title: opts.title, message: opts.message }); },
@@ -143,6 +158,11 @@
   const realFetch = window.fetch.bind(window);
   window.fetch = async (input, opts) => {
     const url = new URL(typeof input === "string" ? input : input.url, "https://octane.wtf/");
+    if (url.hostname === "raw.githubusercontent.com" && url.pathname.endsWith("/version.json")) {
+      await new Promise((r) => setTimeout(r, 500));
+      const v = store.__demoVersion ? currentVersion() : nextVersion();
+      return json({ version: v, notes: "Demo update", page: "https://github.com/wozers0/kerosene" });
+    }
     if (!/octane\.wtf$|octomons\.wtf$/.test(url.hostname)) return realFetch(input, opts);
     const p = url.pathname;
     let m;

@@ -122,7 +122,45 @@ function onTick() {
   getValues(); // refreshes when the cache is older than V.TTL
 }
 
-ext.runtime.onInstalled.addListener(() => { ensureAlarm(); onTick(); });
+// ---------- updates ----------
+const IS_FIREFOX = typeof globalThis.browser?.runtime?.getBrowserInfo === "function";
+
+// A newer signed version is ready: apply it now instead of waiting for a restart.
+ext.runtime.onUpdateAvailable?.addListener(() => ext.runtime.reload());
+
+// After an update: remember it for the popup and refresh open Octane tabs so
+// they load the new version.
+async function afterUpdate(previousVersion) {
+  await ext.storage.local.set({
+    justUpdated: { from: previousVersion, to: ext.runtime.getManifest().version, at: Date.now() },
+  });
+  const tabs = await ext.tabs.query({ url: ["https://octane.wtf/*", "https://*.octane.wtf/*"] }).catch(() => []);
+  for (const t of tabs) ext.tabs.reload(t.id).catch(() => {});
+}
+
+// Install a newer release. Store / signed installs update in place; a
+// developer (unpacked or temporary) install can't replace its own files.
+async function applyUpdate(info) {
+  const self = await ext.management?.getSelf?.().catch(() => null);
+  const dev = !self || self.installType === "development";
+  if (!dev && !IS_FIREFOX && typeof ext.runtime.requestUpdateCheck === "function") {
+    const res = await ext.runtime.requestUpdateCheck();
+    const status = res?.status || res?.[0] || res; // promise form or [status, details]
+    return { mode: "store", status }; // "update_available" -> onUpdateAvailable reloads us
+  }
+  if (!dev && IS_FIREFOX && info.firefox) {
+    await ext.tabs.create({ url: info.firefox }); // Firefox shows its "update Kerosene?" prompt
+    return { mode: "xpi" };
+  }
+  await ext.tabs.create({ url: info.page || `https://github.com/${S.REPO}/releases/latest` });
+  return { mode: "manual" };
+}
+
+ext.runtime.onInstalled.addListener((details) => {
+  ensureAlarm();
+  onTick();
+  if (details?.reason === "update") afterUpdate(details.previousVersion);
+});
 ext.runtime.onStartup.addListener(() => { ensureAlarm(); onTick(); });
 ext.alarms.onAlarm.addListener((a) => { if (a.name === ALARM) onTick(); });
 
@@ -140,6 +178,10 @@ ext.notifications.onClicked.addListener((nid) => {
 ext.runtime.onMessage.addListener((msg, _sender, reply) => {
   if (msg?.type === "refresh-friends") {
     pollFriends().then(reply, () => reply(null));
+    return true;
+  }
+  if (msg?.type === "apply-update") {
+    applyUpdate(msg.info || {}).then(reply, (err) => reply({ mode: "error", error: String(err.message || err) }));
     return true;
   }
   if (msg?.type === "get-values") {

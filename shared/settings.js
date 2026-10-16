@@ -4,6 +4,9 @@
 (() => {
   const SITE = "https://octane.wtf";
   const API = `${SITE}/apisite`;
+  // Releases: the update button reads version.json from the repo's main branch
+  const REPO = "wozers0/kerosene";
+  const VERSION_URL = `https://raw.githubusercontent.com/${REPO}/main/version.json`;
 
   const DEFAULTS = {
     enabled: true,
@@ -123,8 +126,26 @@
     return items.map((i) => ({ assetId: i.assetId, name: i.name, rap: i.recentAveragePrice || 0, serial: i.serialNumber }));
   }
 
+  // "0.10.1" > "0.9.9"
+  function newerVersion(a, b) {
+    const pa = String(a).split(".").map(Number), pb = String(b).split(".").map(Number);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+      const d = (pa[i] || 0) - (pb[i] || 0);
+      if (d) return d > 0;
+    }
+    return false;
+  }
+
+  async function fetchLatestRelease() {
+    const res = await fetch(`${VERSION_URL}?t=${Date.now()}`, { cache: "no-store", credentials: "omit" });
+    if (!res.ok) throw new Error(res.status === 404 ? "release info not found (is the repo public?)" : `HTTP ${res.status}`);
+    const info = await res.json();
+    if (!info?.version) throw new Error("bad release info");
+    return info;
+  }
+
   globalThis.KeroseneSettings = {
-    SITE, API, DEFAULTS, load, save,
+    SITE, API, REPO, VERSION_URL, DEFAULTS, load, save, newerVersion, fetchLatestRelease,
     fetchFriends, fetchUser, fetchProfile, searchUsers, resolveUser, fetchHeadshots, fetchCollectibles,
   };
 })();

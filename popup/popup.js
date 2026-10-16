@@ -629,6 +629,52 @@ async function checkAccess() {
   };
 }
 
+// ---------- update button ----------
+function setUpdateState(state, label = "", title = "") {
+  const b = $("update-btn");
+  b.dataset.state = state;
+  let span = b.querySelector(".label");
+  if (!span) b.append(span = el("span", { className: "label" }));
+  span.textContent = label;
+  b.title = title || label || "Check for updates";
+  b.setAttribute("aria-label", b.title);
+}
+
+async function checkForUpdate() {
+  const b = $("update-btn");
+  if (b.dataset.state === "checking" || b.dataset.state === "updating") return;
+  setUpdateState("checking", "checking…");
+  const started = Date.now();
+  let info, error;
+  try { info = await S.fetchLatestRelease(); } catch (err) { error = err; }
+  // let the spin read as a check even on a fast connection
+  await new Promise((r) => setTimeout(r, Math.max(0, 700 - (Date.now() - started))));
+  const current = ext.runtime.getManifest().version;
+  if (error) return setUpdateState("error", "couldn't check", `Couldn't check for updates: ${error.message}`);
+  if (!S.newerVersion(info.version, current)) {
+    return setUpdateState("latest", "up to date", `Kerosene ${current} is the latest version`);
+  }
+  setUpdateState("updating", "updating…", `Updating to ${info.version}${info.notes ? ` — ${info.notes}` : ""}`);
+  const res = await ext.runtime.sendMessage({ type: "apply-update", info }).catch((err) => ({ mode: "error", error: String(err) }));
+  if (res?.mode === "store" && res.status !== "update_available") {
+    // the store hasn't published it yet; Chrome checks again by itself
+    setUpdateState("updating", `${info.version} soon`, `Version ${info.version} is on its way through the web store`);
+  } else if (res?.mode === "manual") {
+    setUpdateState("updating", `get ${info.version}`, `This copy was loaded by hand; download ${info.version} from GitHub`);
+  } else if (res?.mode === "error") {
+    setUpdateState("error", "update failed", res.error);
+  }
+  // "store" + "xpi": the browser installs it, Kerosene reloads, Octane tabs refresh
+}
+
+async function renderJustUpdated() {
+  const { justUpdated } = await ext.storage.local.get("justUpdated");
+  if (justUpdated && Date.now() - justUpdated.at < 10 * 60 * 1000) {
+    setUpdateState("latest", `updated to ${justUpdated.to}`, `Updated from ${justUpdated.from} to ${justUpdated.to}`);
+    ext.storage.local.remove("justUpdated");
+  }
+}
+
 // ---------- settings ----------
 function wireToggles() {
   for (const input of document.querySelectorAll("[data-setting]")) {
@@ -698,6 +744,8 @@ async function init() {
   renderCalc();
   checkAccess();
   loadValues();
+  $("update-btn").addEventListener("click", checkForUpdate);
+  renderJustUpdated();
   wireToggles();
   renderSwatches();
   wireSections();

@@ -1,0 +1,12 @@
+{
+  "addons": {
+    "kerosene@wozers0": {
+      "updates": [
+        {
+          "version": "0.3.2",
+          "update_link": "https://github.com/wozers0/kerosene/releases/download/v0.3.2/kerosene-firefox.xpi"
+        }
+      ]
+    }
+  }
+}

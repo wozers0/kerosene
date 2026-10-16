@@ -250,6 +250,14 @@
       navigate(d.url, from === "popup");
     } else if (d.type === "toast") {
       toast(d.title, d.message);
+    } else if (d.type === "demo-reload") {
+      // what the browser does after an update: Kerosene reloads, Octane tabs refresh
+      setTimeout(() => {
+        loadPopup();
+        siteReady = false;
+        loadSite(current.page, current.itemId, current.path);
+        toast("Kerosene updated", `Now running version ${d.version}. Octane tabs refreshed.`);
+      }, 1600);
     }
   });
 
