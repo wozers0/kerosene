@@ -23,19 +23,28 @@ concurrency: release
 jobs:
   release:
     runs-on: ubuntu-latest
+    env:
+      WEB_EXT_API_KEY: ${{ secrets.AMO_JWT_ISSUER }}
+      WEB_EXT_API_SECRET: ${{ secrets.AMO_JWT_SECRET }}
     steps:
+      - name: Wait for signing keys
+        if: env.WEB_EXT_API_KEY == '' || env.WEB_EXT_API_SECRET == ''
+        run: echo "::notice::Add the AMO_JWT_ISSUER and AMO_JWT_SECRET repository secrets to publish signed releases."
+
       - uses: actions/checkout@v4
+        if: env.WEB_EXT_API_KEY != '' && env.WEB_EXT_API_SECRET != ''
 
       - name: Read version
         id: v
+        if: env.WEB_EXT_API_KEY != '' && env.WEB_EXT_API_SECRET != ''
         run: echo "version=$(jq -r .version manifest.json)" >> "$GITHUB_OUTPUT"
 
-      - name: Skip if this version is already released
+      - name: Skip if this version is already released (or there are no keys yet)
         id: exists
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view "v${{ steps.v.outputs.version }}" >/dev/null 2>&1; then
+          if [ -z "$WEB_EXT_API_KEY" ] || [ -z "$WEB_EXT_API_SECRET" ] || gh release view "v${{ steps.v.outputs.version }}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
 
@@ -50,9 +59,6 @@ jobs:
 
       - name: Sign the Firefox build with Mozilla (unlisted)
         if: steps.exists.outputs.skip != 'true'
-        env:
-          WEB_EXT_API_KEY: ${{ secrets.AMO_JWT_ISSUER }}
-          WEB_EXT_API_SECRET: ${{ secrets.AMO_JWT_SECRET }}
         run: |
           npx --yes web-ext@8 sign --channel=unlisted --source-dir build/firefox --artifacts-dir signed
           cp signed/*.xpi dist/kerosene-firefox.xpi
