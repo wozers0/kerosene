@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Kerosene",
-  "version": "0.3.3",
+  "version": "0.4.0",
   "description": "Fuel for Octane - straight bullshit made by dad and claude!!!",
   "action": {
     "default_title": "Kerosene",
@@ -58,9 +58,21 @@
         "shared/values.js",
         "shared/char-field.js",
         "content/engine.js",
-        "content/values.js"
+        "content/values.js",
+        "content/avatar-sandbox.js"
       ],
       "run_at": "document_start",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "https://octane.wtf/theme2020/avatar*"
+      ],
+      "js": [
+        "content/avatar-main.js"
+      ],
+      "world": "MAIN",
+      "run_at": "document_end",
       "all_frames": true
     }
   ]

@@ -26,6 +26,7 @@
     notifyGames: true,
     // trading
     showValues: true,
+    avatarSandbox: true,
     calc: { give: [], get: [], giveRobux: 0, getRobux: 0 },
   };
 

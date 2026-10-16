@@ -13,7 +13,7 @@ const LINKS = [
   { label: "Home", path: "/home", ico: "🏠" },
   { label: "Games", path: "/games", ico: "🎮" },
   { label: "Catalog", path: "/catalog", ico: "🛒" },
-  { label: "Avatar", path: "/avatar", ico: "🧍" },
+  { label: "Avatar", path: "/my/avatar", ico: "🧍" },
   { label: "Friends", path: "/friends", ico: "👥" },
   { label: "Trades", path: "/trades", ico: "🔁" },
   { label: "Groups", path: "/groups", ico: "🛡️" },
