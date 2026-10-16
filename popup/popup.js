@@ -777,13 +777,19 @@ async function renderJustUpdated() {
   screen.show(justUpdated.from, justUpdated.to, "Updating Kerosene");
   screen.status("Installed. Loading the new version…");
   screen.progress(null);
+  // what's new in this version (the release notes), if they arrive quickly
+  const notes = Promise.race([
+    S.fetchLatestRelease().then((info) => (info.version === justUpdated.to ? info.notes : ""), () => ""),
+    sleep(1500).then(() => ""),
+  ]);
   await sleep(reduced ? 200 : 650);
+  const whatsNew = String(await notes).replace(/\s*\(v[\d.]+\)\s*$/, "").trim();
   screen.progress(1);
   screen.el().classList.add("done");
   $("us-title").textContent = `Kerosene ${justUpdated.to}`;
-  screen.status("Updated and ready.");
+  screen.status(whatsNew ? `**What's new:** ${whatsNew}` : "Updated and ready.");
   field?.ripple?.();
-  await sleep(reduced ? 300 : 1300);
+  await sleep(reduced ? 300 : whatsNew ? 2600 : 1300);
   document.body.classList.add("refreshed");
   screen.el().classList.add("out");
   await sleep(reduced ? 0 : 600);
