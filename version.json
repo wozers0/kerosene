@@ -1,8 +1,11 @@
 {
-  "version": "0.4.0",
-  "notes": "Avatar Sandbox: try on any catalog item in the avatar editor, save outfits locally, see what they cost",
+  "version": "0.4.1",
+  "notes": "Update in place with a loading screen and refresh animation; Sandbox fixes (v0.4.1)",
   "released": "2026-10-16",
-  "firefox": "https://github.com/wozers0/kerosene/releases/download/v0.4.0/kerosene-firefox.xpi",
-  "chrome": "https://github.com/wozers0/kerosene/releases/download/v0.4.0/kerosene-chrome.zip",
-  "page": "https://github.com/wozers0/kerosene/releases/tag/v0.4.0"
+  "firefox": "https://github.com/wozers0/kerosene/releases/download/v0.4.1/kerosene-firefox.xpi",
+  "chrome": "https://github.com/wozers0/kerosene/releases/download/v0.4.1/kerosene-chrome.zip",
+  "page": "https://github.com/wozers0/kerosene/releases/tag/v0.4.1",
+  "firefox_xpi": "https://raw.githubusercontent.com/wozers0/kerosene/main/dist/kerosene-firefox.xpi",
+  "firefox_sha256": "d1bf9b4b0ecd511c8cc9498accdd88c8ac0335266d368547ae16a21ad2a65926",
+  "firefox_size": 101149
 }
