@@ -79,7 +79,7 @@ h1 {
   color: rgb(var(--accent));
 }
 .cursor { animation: blink 1s steps(1) infinite; }
-.sub { margin: 2px 0 0; color: var(--muted); font-size: 11px; }
+.sub { margin: 2px 0 0; color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sub b { color: var(--text); font-weight: 600; }
 
 .pill {
@@ -421,7 +421,9 @@ div.row { cursor: default; }
 }
 .item-list.compact .item-thumb { width: 24px; height: 24px; }
 .item-text { flex: 1; min-width: 0; }
-.item-name { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item-name { display: flex; align-items: center; min-width: 0; font-weight: 600; white-space: nowrap; }
+.item-name-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.item-name .tag { flex-shrink: 0; }
 .item-sub { display: block; color: var(--muted); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .item-sub .v { color: rgb(var(--accent)); font-weight: 600; }
 .tag { display: inline-block; padding: 1px 4px; border-radius: 3px; font-size: 9px; font-weight: 700; margin-left: 4px; vertical-align: 1px; }

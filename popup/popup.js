@@ -337,7 +337,7 @@ async function renderViewer() {
   const { viewer = null } = await ext.storage.local.get("viewer");
   const line = $("viewer-line");
   line.replaceChildren("fuel for ", el("b", { textContent: "octane" }));
-  if (viewer) line.append(` · ${viewer.displayName || viewer.name}`);
+  if (viewer) line.append(el("span", { className: "viewer-name", textContent: ` · ${viewer.displayName || viewer.name}` }));
 }
 
 function wireFriends() {
@@ -438,7 +438,7 @@ async function loadValues(force = false) {
 function itemRow(v, actions = [], compact = false) {
   const thumb = el("div", { className: "item-thumb" });
   if (v.thumb) thumb.style.backgroundImage = `url("${v.thumb}")`;
-  const name = el("span", { className: "item-name", textContent: v.name, title: v.name });
+  const name = el("span", { className: "item-name", title: v.name }, [el("span", { className: "item-name-text", textContent: v.name })]);
   if (v.acronym) name.append(el("span", { className: "tag", textContent: v.acronym, style: "background:rgba(255,255,255,.08)" }));
   if (v.projected) name.append(el("span", { className: "tag proj", textContent: "PROJ", title: "Projected: RAP is inflated" }));
   if (v.rare) name.append(el("span", { className: "tag rare", textContent: "RARE" }));
@@ -467,8 +467,8 @@ function renderValueResults() {
   list.replaceChildren();
   for (const v of results) {
     list.append(itemRow(v, [
-      iconBtn("+", "Add to “You give” in the calculator", () => calcAdd("give", v.id)),
-      iconBtn("→", "Add to “You get” in the calculator", () => calcAdd("get", v.id)),
+      iconBtn("Give", "Add to “You give” in the trade calculator", () => calcAdd("give", v.id), "btn ghost small"),
+      iconBtn("Get", "Add to “You get” in the trade calculator", () => calcAdd("get", v.id), "btn ghost small"),
       iconBtn("↗", "Open on Octane", () => openSite(`/catalog/${v.id}/item`)),
     ]));
   }
@@ -522,11 +522,18 @@ async function saveCalc(patch) {
 
 async function calcAdd(side, id) {
   const list = [...(settings.calc[side] || [])];
-  if (list.length >= MAX_ITEMS) return;
+  const label = side === "give" ? "You give" : "You get";
+  const name = values[id]?.name || "Item";
+  if (list.length >= MAX_ITEMS) {
+    $("values-note").textContent = `“${label}” already has ${MAX_ITEMS} items.`;
+    return;
+  }
   list.push(id);
   await saveCalc({ [side]: list });
+  $("values-note").textContent = `Added ${name} to “${label}”.`;
   const d = document.querySelector('details[data-key="calc"]');
   if (d && !d.open) d.open = true;
+  d?.scrollIntoView({ block: "nearest", behavior: "smooth" });
 }
 
 function renderCalc() {

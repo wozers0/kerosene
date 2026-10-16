@@ -75,8 +75,9 @@
     flex: 1 1 200px; min-width: 0; display: flex; align-items: center; gap: 7px;
     font: 500 12.5px/1 var(--font-mono); color: var(--muted);
     background: var(--ink); border: 1px solid var(--line); border-radius: 999px; padding: 8px 12px;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
+  .url svg { flex: none; }
+  .url > span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .url b { color: var(--text); font-weight: 500; }
   .tabs { display: flex; gap: 4px; overflow-x: auto; padding: 3px; margin: -3px; } /* room for focus rings */
   .tabs button {
@@ -92,7 +93,7 @@
   .tip { display: flex; gap: 10px; color: var(--muted); font-size: 14px; }
   .tip b { color: var(--text); font-weight: 600; }
   .tip .k { flex-shrink: 0; width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; font: 700 11px/1 var(--font-mono); color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); }
-  .foot { color: var(--muted); font-size: 13px; }
+  .foot { grid-column: 1 / -1; color: var(--muted); font-size: 13px; }
   .foot a { color: var(--accent); }
 
   /* ---------- toasts ---------- */
@@ -165,7 +166,7 @@
   <section class="tips" aria-label="Things to try">
     <h2>Try this</h2>
     <div class="tip"><span class="k">1</span><div><b>Themes:</b> tap Classic, Dark or Modern in the popup, then open the Octane panel.</div></div>
-    <div class="tip"><span class="k">2</span><div><b>Backgrounds:</b> pick <b>Field</b>, then tap or drag your finger across it.</div></div>
+    <div class="tip"><span class="k">2</span><div><b>Backgrounds:</b> pick <b>Field</b>, then tap or drag across it (finger or mouse).</div></div>
     <div class="tip"><span class="k">3</span><div><b>Trades:</b> open Trades for the WIN / LOSS banner, or New trade and tap items to change the deal.</div></div>
     <div class="tip"><span class="k">4</span><div><b>Values:</b> search an item in Item values, or build a deal in Trade calculator.</div></div>
     <div class="tip"><span class="k">5</span><div><b>Friends:</b> tap Refresh to see who's online or playing, with Join buttons.</div></div>

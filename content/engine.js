@@ -22,6 +22,7 @@
   let bgActive = false;
   let contrastBoost = false; // light theme + custom background
   let coverWidth = 0; // viewport width the cover marks were computed for
+  let basePageColor = null; // the site's page colour before Kerosene's background
   let field = null;
   let observer = null;
   let rebuildTimer = null, coverTimer = null;
@@ -224,6 +225,7 @@
 
     restoreInline();
     if (document.body) rewriteInlineTree(document.body);
+    for (const el of document.querySelectorAll("[data-kero-clear]")) markClear(el);
   }
 
   function rewriteInline(el) {
@@ -234,6 +236,7 @@
     inlineOrig.set(el, orig);
     for (const [p, v] of decls) el.style.setProperty(p, v, "important");
     inlineWritten.set(el, el.getAttribute("style"));
+    if (el.hasAttribute("data-kero-clear")) markClear(el); // stay see-through over the background
   }
 
   function rewriteInlineTree(node) {
@@ -279,6 +282,7 @@
     // Embedded Octane pages (trades, item, limiteds iframes) just go see-through
     // so the top page's background shows behind them.
     const embedded = window.top !== window;
+    basePageColor = pageColorFromLayout();
     const light = pageIsLight();
     bgActive = true;
     addStyle("bg-over", `
@@ -358,43 +362,80 @@
     return Boolean(c) && T.rgbToHsl(c).l > 0.5;
   }
 
-  // Elements that cover the whole viewport (Octane's .page, Roblox's
-  // #container-main wrappers ...), down to a few levels deep.
+  // Page wrappers that would hide the custom background: anything covering
+  // the viewport, plus large blocks painted in the page's own colour at any
+  // depth (Octane's home page has a near-full-width content block a few
+  // levels down). Cards and panels in other colours are left alone.
+  const sameTone = (a, b) => Math.abs(a.r - b.r) <= 10 && Math.abs(a.g - b.g) <= 10 && Math.abs(a.b - b.b) <= 10;
+
+  function pageTones() {
+    const tones = [];
+    if (pageColor) tones.push(pageColor);
+    if (basePageColor) tones.push(basePageColor);
+    if (activeTheme) tones.push(T.parseColor(activeTheme.palette.page));
+    return tones;
+  }
+
   function findCovers() {
     const out = [];
     const vw = innerWidth, vh = innerHeight;
     // hidden frame (display:none): no real viewport or layout to judge by
     if (!document.body || !vw || !vh || !document.documentElement.getBoundingClientRect().width) return null;
+    const tones = pageTones();
     const walk = (el, depth) => {
       for (const child of el.children) {
         if (child.id && child.id.startsWith(OWN)) continue;
         const r = child.getBoundingClientRect();
-        if (r.width < vw * 0.9 || r.height < vh * 0.85) continue;
-        out.push(child);
-        if (depth < 4) walk(child, depth + 1);
+        if (r.width < vw * 0.5 || r.height < vh * 0.3) continue; // too small to be a page wrapper
+        const cs = getComputedStyle(child);
+        const bg = T.parseColor(cs.backgroundColor);
+        const painted = cs.backgroundImage !== "none" || (bg && bg.a > 0);
+        if (painted) {
+          const full = r.width >= vw * 0.9 && r.height >= vh * 0.85;
+          // rounded corners or a shadow make it a card, not a page wrapper
+          const cardLike = cs.boxShadow !== "none" || parseFloat(cs.borderTopLeftRadius) >= 6 ||
+            (cs.borderTopStyle !== "none" && parseFloat(cs.borderTopWidth) > 0 && cs.borderBottomStyle !== "none");
+          const pageTone = !cardLike && r.width >= vw * 0.6 && bg && bg.a > 0.5 && tones.some((t) => sameTone(bg, t));
+          if (full || pageTone) out.push(child);
+        }
+        if (depth < 14) walk(child, depth + 1);
       }
     };
     walk(document.body, 0);
     return out;
   }
 
-  // Opaque full-screen wrappers would hide the custom background.
   function clearCovers() {
     if (!bgActive) return;
     const covers = findCovers();
     if (!covers) return;
-    // after a resize, re-evaluate from scratch so marks made at another size
-    // don't linger; otherwise only add (content that shrinks keeps its mark)
+    // after a width change, drop only marks on elements that are no longer
+    // wide enough to be a wrapper (height can shrink with client-rendered content)
     if (innerWidth !== coverWidth) {
-      for (const el of document.querySelectorAll("[data-kero-clear]")) el.removeAttribute("data-kero-clear");
+      for (const el of document.querySelectorAll("[data-kero-clear]")) {
+        if (el.getBoundingClientRect().width < innerWidth * 0.5) unclear(el);
+      }
       coverWidth = innerWidth;
     }
-    for (const el of covers) {
-      const cs = getComputedStyle(el);
-      if (cs.backgroundImage !== "none" || !/rgba\(.*,\s*0\)|transparent/.test(cs.backgroundColor)) {
-        el.setAttribute("data-kero-clear", "");
-      }
-    }
+    for (const el of covers) markClear(el);
+  }
+
+  // [data-kero-clear] makes a wrapper see-through from our stylesheet; an inline
+  // background (the page's own, or our recolouring of it) needs an inline override.
+  function markClear(el) {
+    el.setAttribute("data-kero-clear", "");
+    if (!/background/i.test(el.getAttribute("style") || "")) return;
+    if (!inlineOrig.has(el)) inlineOrig.set(el, el.getAttribute("style"));
+    el.style.setProperty("background-color", "transparent", "important");
+    el.style.setProperty("background-image", "none", "important");
+    inlineWritten.set(el, el.getAttribute("style"));
+  }
+  function unclear(el) {
+    el.removeAttribute("data-kero-clear");
+    if (!inlineOrig.has(el)) return;
+    el.setAttribute("style", inlineOrig.get(el));
+    inlineOrig.delete(el);
+    if (compiled) rewriteInline(el);
   }
 
   // Octane's login page paints its own background on a full-screen canvas.
@@ -490,6 +531,7 @@
     restoreInline();
     bgActive = false;
     coverWidth = 0;
+    basePageColor = null;
     activeTheme = null;
     compiled = null;
     pageColor = null;
@@ -563,6 +605,11 @@
     observer.observe(document.documentElement, {
       childList: true, subtree: true, attributes: true, attributeFilter: ["style"],
     });
+    // a hidden frame (display:none) shown again at the same size fires no
+    // resize event, but its root box goes from 0 to real size
+    if (typeof ResizeObserver === "function") {
+      new ResizeObserver(scheduleCovers).observe(document.documentElement);
+    }
   }
 
   async function init() {

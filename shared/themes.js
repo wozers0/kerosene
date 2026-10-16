@@ -236,7 +236,7 @@
     if (!dark) P = Math.min(P, 0.955);
 
     return {
-      theme, pal, P, dark,
+      theme, pal, P, dark, contrast: Boolean(opts.contrast),
       surface(l) {
         let e = l - P;
         // a light site has little room above its page colour: white == card
@@ -268,6 +268,10 @@
     // saturated colours: blue/purple become the theme accent, the rest keep meaning
     if (s >= 0.45 && l >= 0.25 && l <= 0.8) {
       if (h >= 185 && h <= 300) return { css: toCss(k.accent(l), c.a), role: "accent" };
+      // status colours keep their hue, but text in them darkens over a light wash
+      if (k.contrast && kind === "fg" && l > 0.3) {
+        return { css: toCss(hslToRgb(h / 360, s, Math.max(0.24, l - 0.16)), c.a), role: "status" };
+      }
       return null;
     }
     if (kind === "accentOnly") return null;

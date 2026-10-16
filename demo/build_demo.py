@@ -54,15 +54,13 @@ def avatar_svg(name, n):
 
 def item_svg(name, n):
     h = hue_of(n)
-    words = re.findall(r"[A-Za-z0-9]+", name)
-    initials = "".join(w[0] for w in words[:3]).upper() or "?"
     return svg_uri(
         f"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'>"
         f"<defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'>"
         f"<stop offset='0' stop-color='hsl({h},55%,58%)'/><stop offset='1' stop-color='hsl({(h + 40) % 360},55%,34%)'/>"
         f"</linearGradient></defs><rect width='120' height='120' rx='14' fill='url(#g)'/>"
-        f"<path d='M30 78 L60 30 L90 78 Z' fill='rgba(255,255,255,.18)'/>"
-        f"<text x='60' y='98' font-family='Arial' font-size='22' font-weight='700' text-anchor='middle' fill='rgba(255,255,255,.92)'>{initials}</text>"
+        f"<path d='M30 82 L60 30 L90 82 Z' fill='rgba(255,255,255,.22)'/>"
+        f"<circle cx='60' cy='92' r='6' fill='rgba(255,255,255,.35)'/>"
         f"</svg>"
     )
 
@@ -169,7 +167,8 @@ def popup_document(data_json, mock):
     css = read("popup/popup.css") + """
 /* demo: the popup lives in a resizable frame instead of a 380px toolbar popup */
 html, body { width: 100% !important; }
-body { min-height: 0 !important; max-height: none !important; height: 100vh; }
+body { min-height: 0 !important; max-height: none !important; height: 100vh; overscroll-behavior: contain; }
+@media (max-width: 899px) { input, select, textarea { font-size: 16px !important; } }
 .shell { min-height: 100vh; }
 """
     html = html.replace('<link rel="stylesheet" href="popup.css">', f"<style>\n{css}\n</style>")
@@ -199,7 +198,7 @@ body { min-height: 0 !important; max-height: none !important; height: 100vh; }
 SITE_CSS = r"""
 /* Stand-in for Octane's Roblox 2021/22 frontend: light-theme / dark-theme classes like the real one */
 * { box-sizing: border-box; }
-html { background-color: #f2f4f5; }
+html { background-color: #f2f4f5; overscroll-behavior: contain; scroll-padding-top: 56px; }
 html.octane-dark { background-color: #232527; }
 body { margin: 0; font-family: "HCo Gotham SSm", "Montserrat", "Helvetica Neue", Helvetica, Arial, sans-serif; font-size: 14px; }
 body.light-theme { background-color: #f2f4f5; color: #393b3d; }
@@ -321,6 +320,7 @@ h1, h2, h3 { margin: 0; }
   .content { margin-left: 0; padding: 18px 16px 32px; }
   .trades, #item-container { grid-template-columns: 1fr; }
   .trade-inventory-panel .item-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  input, select, textarea { font-size: 16px !important; }
 }
 """
 
@@ -456,13 +456,13 @@ SITE_PAGE_SCRIPT = r"""
     var row = e.target.closest('[data-trade]');
     if (row) { window.__selTrade = row.getAttribute('data-trade'); render(); return; }
     var rm = e.target.closest('[data-remove]');
-    if (rm) { e.preventDefault(); offer.give.splice(offer.give.indexOf(Number(rm.getAttribute('data-remove'))), 1); keepRobux(); render(); return; }
+    if (rm) { e.preventDefault(); offer.give.splice(offer.give.indexOf(Number(rm.getAttribute('data-remove'))), 1); keepRobux(); render(); revealVerdict(); return; }
     var add = e.target.closest('[data-add]');
     if (add && page === 'newtrade') {
       e.preventDefault();
       var id = Number(add.getAttribute('data-add'));
       if (offer.give.indexOf(id) < 0 && offer.give.length < 4) offer.give.push(id);
-      keepRobux(); render(); return;
+      keepRobux(); render(); revealVerdict(); return;
     }
     var a = e.target.closest('a[href]');
     if (!a) return;
@@ -494,8 +494,20 @@ SITE_PAGE_SCRIPT = r"""
 
   if (window.ext) {
     ext.storage.onChanged.addListener(function (c) {
-      if (c.friendStatus && page === 'home') { I.storage.friendStatus = c.friendStatus.newValue; render(); }
+      if (c.friendStatus) {
+        I.storage.friendStatus = c.friendStatus.newValue;
+        if (page === 'home') render();
+      }
     });
+  }
+  document.addEventListener('input', function (e) {
+    if (e.target.matches && e.target.matches('input[name="robux"]')) keepRobux();
+  });
+  function revealVerdict() {
+    setTimeout(function () {
+      var v = document.querySelector('.kero-verdict');
+      if (v) v.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }, 260);
   }
   function keepRobux() {
     var mine = document.querySelector('#my-offer input[name="robux"]');

@@ -56,9 +56,10 @@
       border: 1px solid rgba(127, 127, 127, 0.3); background: rgba(127, 127, 127, 0.08);
       font: 500 13px/1.5 'Gotham SSm', 'HCo Gotham SSm', system-ui, sans-serif;
     }
-    .kero-item-panel h4 { margin: 0 0 8px; font-size: 14px; font-weight: 700; display: flex; justify-content: space-between; align-items: center; }
+    .kero-item-panel h4 { margin: 0 0 8px; font-size: 14px; font-weight: 700; display: flex; flex-wrap: wrap; gap: 2px 10px; justify-content: space-between; align-items: center; }
     .kero-item-panel h4 a { font-size: 11px; font-weight: 500; }
-    .kero-item-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 14px; }
+    .kero-item-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(88px, 1fr)); gap: 8px 14px; }
+    .kero-item-grid b { overflow-wrap: anywhere; }
     .kero-item-grid span { display: block; font-size: 10.5px; opacity: 0.65; text-transform: uppercase; letter-spacing: 0.4px; }
     .kero-item-grid b { font-size: 14px; }
     .kero-total-value .kero-pill { font-size: 13px; padding: 4px 8px; vertical-align: middle; }
