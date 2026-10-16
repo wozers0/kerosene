@@ -374,6 +374,105 @@ div.row { cursor: default; }
 .user-sub { display: block; color: var(--muted); font-size: 10px; }
 .user.online .user-sub { color: var(--ok); }
 
+/* ---------- values & calculator ---------- */
+.worth {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(var(--accent), 0.3);
+  background: rgba(var(--accent), 0.07);
+}
+.worth[hidden] { display: none; }
+.worth .cap { grid-column: 1 / -1; color: var(--muted); font-size: 10px; letter-spacing: 0.5px; text-transform: uppercase; }
+.worth div span { display: block; color: var(--muted); font-size: 9.5px; }
+.worth div b { font-size: 13px; }
+.worth .note-line { grid-column: 1 / -1; color: var(--muted); font-size: 10.5px; }
+
+.item-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 250px; overflow-y: auto; }
+.item-list::-webkit-scrollbar { width: 4px; }
+.item-list::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); border-radius: 2px; }
+.item-list .empty-note { color: var(--muted); font-size: 10.5px; padding: 4px 2px; }
+.item-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 7px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.025);
+}
+.item-thumb {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06) center / cover no-repeat;
+}
+.item-list.compact .item-thumb { width: 24px; height: 24px; }
+.item-text { flex: 1; min-width: 0; }
+.item-name { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item-sub { display: block; color: var(--muted); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item-sub .v { color: rgb(var(--accent)); font-weight: 600; }
+.tag { display: inline-block; padding: 1px 4px; border-radius: 3px; font-size: 9px; font-weight: 700; margin-left: 4px; vertical-align: 1px; }
+.tag.proj { background: #d97706; color: #fff; }
+.tag.rare { background: #a16207; color: #fff; }
+
+.calc-side { display: flex; flex-direction: column; gap: 5px; }
+.calc-head { display: flex; justify-content: space-between; align-items: baseline; font-weight: 600; }
+.calc-head b { color: var(--muted); font-weight: 500; font-size: 10.5px; }
+.calc-add-row { display: grid; grid-template-columns: 1fr 74px; gap: 6px; }
+.suggest-wrap { position: relative; }
+.suggest-wrap .input { width: 100%; }
+.suggest {
+  position: absolute;
+  z-index: 5;
+  left: 0;
+  right: 0;
+  top: calc(100% + 3px);
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  border-radius: 8px;
+  border: 1px solid rgba(var(--accent), 0.4);
+  background: #111113;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+}
+.suggest[hidden] { display: none; }
+.suggest button {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  width: 100%;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 7px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 11px;
+}
+.suggest button:hover, .suggest button:focus-visible { background: rgba(var(--accent), 0.18); }
+.suggest button span:last-child { color: var(--muted); }
+.calc-verdict {
+  padding: 9px 10px;
+  border-radius: 8px;
+  text-align: center;
+  font-weight: 700;
+  font-size: 13px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line);
+}
+.calc-verdict:empty { display: none; }
+.calc-verdict small { display: block; font-weight: 400; font-size: 10.5px; color: var(--muted); margin-top: 2px; }
+.calc-verdict.win { background: rgba(34, 197, 94, 0.16); border-color: rgba(34, 197, 94, 0.5); color: #86efac; }
+.calc-verdict.loss { background: rgba(239, 68, 68, 0.16); border-color: rgba(239, 68, 68, 0.5); color: #fca5a5; }
+.calc-verdict.fair { color: var(--text); }
+
+/* opened as a tab (Firefox file uploads) */
+body.in-tab { margin: 24px auto; min-height: 0; max-height: none; overflow: visible; }
+html:has(body.in-tab) { width: auto; }
+
 /* ---------- links ---------- */
 .link-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .link {

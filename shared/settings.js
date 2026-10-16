@@ -1,5 +1,5 @@
 // Settings and Octane API helpers shared by the popup, the content script
-// and the service worker. Everything lives in chrome.storage.local (custom
+// and the service worker. Everything lives in ext.storage.local (custom
 // background images can be several MB, far beyond storage.sync quotas).
 (() => {
   const SITE = "https://octane.wtf";
@@ -21,15 +21,22 @@
     friends: [], // extra user IDs to watch (people who aren't on your friends list)
     notifyOnline: true,
     notifyGames: true,
+    // trading
+    showValues: true,
+    calc: { give: [], get: [], giveRobux: 0, getRobux: 0 },
   };
 
   async function load() {
-    const got = await chrome.storage.local.get(DEFAULTS);
-    return { ...DEFAULTS, ...got, bg: { ...DEFAULTS.bg, ...(got.bg || {}) } };
+    const got = await ext.storage.local.get(DEFAULTS);
+    return {
+      ...DEFAULTS, ...got,
+      bg: { ...DEFAULTS.bg, ...(got.bg || {}) },
+      calc: { ...DEFAULTS.calc, ...(got.calc || {}) },
+    };
   }
 
   function save(patch) {
-    return chrome.storage.local.set(patch);
+    return ext.storage.local.set(patch);
   }
 
   async function getJson(url) {
@@ -103,8 +110,21 @@
     return out;
   }
 
+  // A user's limiteds: /inventory/v1/users/{id}/assets/collectibles (paged)
+  async function fetchCollectibles(userId) {
+    const items = [];
+    let cursor = "";
+    for (let page = 0; page < 20; page++) {
+      const data = await getJson(`${API}/inventory/v1/users/${encodeURIComponent(userId)}/assets/collectibles?limit=100&sortOrder=Desc${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`);
+      items.push(...(data.data || []));
+      if (!data.nextPageCursor) break;
+      cursor = data.nextPageCursor;
+    }
+    return items.map((i) => ({ assetId: i.assetId, name: i.name, rap: i.recentAveragePrice || 0, serial: i.serialNumber }));
+  }
+
   globalThis.KeroseneSettings = {
     SITE, API, DEFAULTS, load, save,
-    fetchFriends, fetchUser, fetchProfile, searchUsers, resolveUser, fetchHeadshots,
+    fetchFriends, fetchUser, fetchProfile, searchUsers, resolveUser, fetchHeadshots, fetchCollectibles,
   };
 })();

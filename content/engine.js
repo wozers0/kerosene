@@ -19,6 +19,7 @@
   let pageColor = null;
   let buildSeq = 0;
   let sheetSig = "";
+  let bgActive = false;
   let field = null;
   let observer = null;
   let rebuildTimer = null, coverTimer = null;
@@ -123,7 +124,7 @@
   const cssCache = new Map(); // href -> Promise<CSSRuleList | null>
   function fetchSheetRules(href) {
     if (!cssCache.has(href)) {
-      cssCache.set(href, chrome.runtime.sendMessage({ type: "fetch-css", url: href }).then((res) => {
+      cssCache.set(href, ext.runtime.sendMessage({ type: "fetch-css", url: href }).then((res) => {
         if (!res || res.error) {
           noteBlocked(href);
           return null;
@@ -139,8 +140,8 @@
   async function noteBlocked(href) {
     let origin;
     try { origin = new URL(href).origin; } catch { return; }
-    const { cssBlocked = [] } = await chrome.storage.local.get("cssBlocked");
-    if (!cssBlocked.includes(origin)) await chrome.storage.local.set({ cssBlocked: [...cssBlocked, origin] });
+    const { cssBlocked = [] } = await ext.storage.local.get("cssBlocked");
+    if (!cssBlocked.includes(origin)) await ext.storage.local.set({ cssBlocked: [...cssBlocked, origin] });
   }
 
   async function collectRules() {
@@ -273,11 +274,16 @@
     const bg = settings.bg;
     if (!bg || bg.mode === "none" || (bg.mode === "image" && !bg.image)) return false;
 
+    // Embedded Octane pages (trades, item, limiteds iframes) just go see-through
+    // so the top page's background shows behind them.
+    const embedded = window.top !== window;
+    bgActive = true;
     addStyle("bg-over", `
       html, body { background: transparent !important; }
-      html { background-color: #000 !important; }
+      ${embedded ? "" : "html { background-color: #000 !important; }"}
       [data-kero-clear] { background: transparent !important; }
     `, true);
+    if (embedded) return true;
     addStyle("bg", `
       #${OWN}bg-layer { position: fixed; inset: 0; z-index: -1; pointer-events: none; overflow: hidden; }
       #${OWN}bg-layer > .kero-fill { position: absolute; inset: -40px; background-position: center; background-size: cover; }
@@ -348,7 +354,7 @@
 
   // Opaque full-screen wrappers would hide the custom background.
   function clearCovers() {
-    if (!document.getElementById(OWN + "bg-layer")) return;
+    if (!bgActive) return;
     for (const el of findCovers()) {
       const cs = getComputedStyle(el);
       if (cs.backgroundImage !== "none" || !/rgba\(.*,\s*0\)|transparent/.test(cs.backgroundColor)) {
@@ -417,9 +423,9 @@
     const id = Number(m?.dataset.id);
     if (!id) return;
     const viewer = { id, name: m.dataset.name || "", displayName: m.dataset.displayname || m.dataset.name || "" };
-    const { viewer: known } = await chrome.storage.local.get("viewer");
+    const { viewer: known } = await ext.storage.local.get("viewer");
     if (!known || known.id !== viewer.id || known.name !== viewer.name || known.displayName !== viewer.displayName) {
-      await chrome.storage.local.set({ viewer });
+      await ext.storage.local.set({ viewer });
     }
   }
 
@@ -448,6 +454,7 @@
       el.removeAttribute("data-kero-hide");
     }
     restoreInline();
+    bgActive = false;
     activeTheme = null;
     compiled = null;
     pageColor = null;
@@ -461,7 +468,7 @@
     clearTimeout(coverTimer);
     coverTimer = setTimeout(() => {
       clearCovers();
-      if (activeTheme || document.getElementById(OWN + "bg-layer")) hideBgCanvases();
+      if (activeTheme || bgActive) hideBgCanvases();
     }, 150);
   }
 
@@ -476,6 +483,8 @@
       activeTheme = theme;
       applyFont(theme);
       addStyle("page", `body { background-color: ${theme.palette.page} !important; }`, true);
+      // default for text no stylesheet colours (normal priority: page CSS still wins)
+      addStyle("base", `body { color: ${theme.palette.text}; }`);
       if (theme.extraCss) addStyle("extra", theme.extraCss, true);
       await buildRecolor();
     }
@@ -548,7 +557,7 @@
     }, 1000);
 
     const WATCHED = ["enabled", "theme", "themeFonts", "seasonal", "bg", "fieldColor", "cssRetry"];
-    chrome.storage.onChanged.addListener(async (changes, area) => {
+    ext.storage.onChanged.addListener(async (changes, area) => {
       if (area !== "local" || !WATCHED.some((k) => k in changes)) return;
       if (changes.cssRetry) cssCache.clear();
       settings = await S.load();

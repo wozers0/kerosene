@@ -40,9 +40,9 @@ async function update(patch) {
 
 async function openSite(path) {
   const url = S.SITE + path;
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (tab?.url?.startsWith(S.SITE)) await chrome.tabs.update(tab.id, { url });
-  else await chrome.tabs.create({ url });
+  const [tab] = await ext.tabs.query({ active: true, currentWindow: true });
+  if (tab?.url?.startsWith(S.SITE)) await ext.tabs.update(tab.id, { url });
+  else await ext.tabs.create({ url });
   window.close();
 }
 
@@ -105,17 +105,17 @@ function renderThemes() {
 
 // Some revivals serve CSS from a CDN; reading it needs the user's OK.
 async function renderCssNotice() {
-  const { cssBlocked = [] } = await chrome.storage.local.get("cssBlocked");
+  const { cssBlocked = [] } = await ext.storage.local.get("cssBlocked");
   const origins = [];
   for (const o of cssBlocked) {
-    if (!(await chrome.permissions.contains({ origins: [`${o}/*`] }))) origins.push(o);
+    if (!(await ext.permissions.contains({ origins: [`${o}/*`] }))) origins.push(o);
   }
   $("css-notice").hidden = origins.length === 0;
   $("css-origins").textContent = origins.map((o) => o.replace(/^https?:\/\//, "")).join(", ");
   $("css-allow").onclick = async () => {
-    const ok = await chrome.permissions.request({ origins: origins.map((o) => `${o}/*`) });
+    const ok = await ext.permissions.request({ origins: origins.map((o) => `${o}/*`) });
     if (ok) {
-      await chrome.storage.local.set({ cssBlocked: [], cssRetry: Date.now() });
+      await ext.storage.local.set({ cssBlocked: [], cssRetry: Date.now() });
       renderCssNotice();
     }
   };
@@ -153,7 +153,7 @@ function renderBackgrounds() {
   const isVideo = /^data:video|\.(mp4|webm)(\?|#|$)/i.test(bg.image || "");
   const custom = tile(bg.image ? (isVideo ? "Video" : "Custom") : "+ Upload", bg.mode === "image", () => {
     if (bg.image) setBg({ mode: "image" });
-    else $("bg-file").click();
+    else pickFile();
   }, "background:#111");
   if (bg.image && !isVideo) custom.style.backgroundImage = `url("${bg.image.replace(/"/g, "%22")}")`;
 
@@ -174,7 +174,24 @@ function note(text, isErr = false) {
   n.classList.toggle("err", isErr);
 }
 
+// Firefox closes the popup when a file picker opens, so uploads happen in
+// the same page opened as a tab.
+const IN_TAB = new URLSearchParams(location.search).has("tab");
+const IS_FIREFOX = /firefox/i.test(navigator.userAgent);
+function pickFile() {
+  if (IS_FIREFOX && !IN_TAB) {
+    ext.tabs.create({ url: ext.runtime.getURL("popup/popup.html?tab=1") });
+    window.close();
+    return;
+  }
+  $("bg-file").click();
+}
+
 function wireBackgrounds() {
+  document.querySelector('label[for="bg-file"]').addEventListener("click", (e) => {
+    e.preventDefault();
+    pickFile();
+  });
   $("bg-url-apply").addEventListener("click", () => {
     const url = $("bg-url").value.trim();
     if (!/^https?:\/\//i.test(url)) return note("Paste a full link starting with https://", true);
@@ -240,7 +257,7 @@ function iconBtn(text, title, onClick, cls = "btn ghost icon") {
 
 async function renderFriends() {
   const { friendStatus = {}, avatars = {}, friendsMeta = {}, viewer = null } =
-    await chrome.storage.local.get(["friendStatus", "avatars", "friendsMeta", "viewer"]);
+    await ext.storage.local.get(["friendStatus", "avatars", "friendsMeta", "viewer"]);
   const list = $("friend-list");
   const filter = $("friend-filter").value.trim().toLowerCase();
 
@@ -280,9 +297,9 @@ async function renderFriends() {
     if (!u.friend) {
       actions.push(iconBtn("×", "Stop watching", async () => {
         await update({ friends: settings.friends.filter((f) => f !== u.id) });
-        const { friendStatus: fs = {} } = await chrome.storage.local.get("friendStatus");
+        const { friendStatus: fs = {} } = await ext.storage.local.get("friendStatus");
         delete fs[u.id];
-        await chrome.storage.local.set({ friendStatus: fs });
+        await ext.storage.local.set({ friendStatus: fs });
         renderFriends();
       }));
     }
@@ -307,17 +324,17 @@ async function renderFriends() {
 async function watchUser(query) {
   const user = await S.resolveUser(query);
   if (settings.friends.includes(user.id)) throw new Error(`Already watching ${user.name}`);
-  const { friendStatus = {} } = await chrome.storage.local.get("friendStatus");
+  const { friendStatus = {} } = await ext.storage.local.get("friendStatus");
   if (friendStatus[user.id]?.friend) throw new Error(`${user.name} is already on your friends list`);
   friendStatus[user.id] = user;
-  await chrome.storage.local.set({ friendStatus });
+  await ext.storage.local.set({ friendStatus });
   await update({ friends: [...settings.friends, user.id] });
   renderFriends();
   return user;
 }
 
 async function renderViewer() {
-  const { viewer = null } = await chrome.storage.local.get("viewer");
+  const { viewer = null } = await ext.storage.local.get("viewer");
   const line = $("viewer-line");
   line.replaceChildren("fuel for ", el("b", { textContent: "octane" }));
   if (viewer) line.append(` · ${viewer.displayName || viewer.name}`);
@@ -342,10 +359,10 @@ function wireFriends() {
   $("friend-filter").addEventListener("input", renderFriends);
   $("friends-refresh").addEventListener("click", async () => {
     $("friends-checked").textContent = "checking…";
-    await chrome.runtime.sendMessage({ type: "refresh-friends" });
+    await ext.runtime.sendMessage({ type: "refresh-friends" });
     renderFriends();
   });
-  chrome.storage.onChanged.addListener((changes, area) => {
+  ext.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
     if (changes.friendStatus || changes.friendsMeta || changes.avatars) renderFriends();
     if (changes.viewer) { renderViewer(); renderFriends(); }
@@ -378,7 +395,7 @@ function wireLookup() {
       }
       if (!users.length) throw new Error("no matches");
       const avatars = await S.fetchHeadshots(users.map((u) => u.id));
-      const { friendStatus = {} } = await chrome.storage.local.get("friendStatus");
+      const { friendStatus = {} } = await ext.storage.local.get("friendStatus");
 
       const rows = users.map((u) => {
         const known = settings.friends.includes(u.id) || friendStatus[u.id]?.friend;
@@ -400,6 +417,209 @@ function wireLookup() {
       out.replaceChildren(el("p", { className: "note err", textContent: `Couldn't find "${query}" (${err.message}).` }));
     }
   });
+}
+
+// ---------- item values ----------
+const V = globalThis.KeroseneValues;
+let values = {};
+let valuesInfo = {};
+let worthCache = null;
+
+async function loadValues(force = false) {
+  const res = await ext.runtime.sendMessage({ type: "get-values", force }).catch(() => null);
+  values = res?.items || {};
+  valuesInfo = res || {};
+  renderValuesNote();
+  renderValueResults();
+  renderCalc();
+  renderWorth();
+}
+
+function itemRow(v, actions = [], compact = false) {
+  const thumb = el("div", { className: "item-thumb" });
+  if (v.thumb) thumb.style.backgroundImage = `url("${v.thumb}")`;
+  const name = el("span", { className: "item-name", textContent: v.name, title: v.name });
+  if (v.acronym) name.append(el("span", { className: "tag", textContent: v.acronym, style: "background:rgba(255,255,255,.08)" }));
+  if (v.projected) name.append(el("span", { className: "tag proj", textContent: "PROJ", title: "Projected: RAP is inflated" }));
+  if (v.rare) name.append(el("span", { className: "tag rare", textContent: "RARE" }));
+  const sub = el("span", { className: "item-sub" });
+  sub.append(el("span", { className: "v", textContent: v.valued ? `V ${V.fmt(v.value)}` : `RAP ${V.fmt(v.rap)}` }));
+  const extra = [];
+  if (v.valued) extra.push(`RAP ${V.fmt(v.rap)}`);
+  if (!compact && V.demandLabel(v.demand)) extra.push(V.demandLabel(v.demand));
+  if (!compact && V.trendLabel(v.trend)) extra.push(V.trendLabel(v.trend));
+  if (extra.length) sub.append(` · ${extra.join(" · ")}`);
+  return el("li", { className: "item-row" }, [thumb, el("div", { className: "item-text" }, [name, sub]), ...actions]);
+}
+
+function renderValuesNote() {
+  const n = Object.keys(values).length;
+  const note = $("values-note");
+  note.classList.toggle("err", Boolean(valuesInfo.error));
+  note.textContent = valuesInfo.error && !n ? `Couldn't load Octomons (${valuesInfo.error})`
+    : n ? `${n} limiteds · Octomons · updated ${timeAgo(valuesInfo.updated)}` : "loading values…";
+  $("values-meta").textContent = n ? `${n} items` : "";
+}
+
+function renderValueResults() {
+  const list = $("value-results");
+  const results = V.search(values, $("value-search").value, 8);
+  list.replaceChildren();
+  for (const v of results) {
+    list.append(itemRow(v, [
+      iconBtn("+", "Add to “You give” in the calculator", () => calcAdd("give", v.id)),
+      iconBtn("→", "Add to “You get” in the calculator", () => calcAdd("get", v.id)),
+      iconBtn("↗", "Open on Octane", () => openSite(`/catalog/${v.id}/item`)),
+    ]));
+  }
+  if (!results.length && Object.keys(values).length) {
+    list.append(el("li", { className: "empty-note", textContent: "// no limiteds match that" }));
+  }
+}
+
+async function renderWorth() {
+  const box = $("worth");
+  const { viewer = null } = await ext.storage.local.get("viewer");
+  if (!viewer || !Object.keys(values).length) { box.hidden = true; return; }
+  box.hidden = false;
+  try {
+    worthCache ??= await S.fetchCollectibles(viewer.id);
+    let value = 0, rap = 0;
+    for (const it of worthCache) {
+      const v = values[it.assetId];
+      rap += it.rap;
+      value += v ? v.value : it.rap;
+    }
+    const stat = (label, num) => el("div", {}, [el("span", { textContent: label }), el("b", { textContent: num })]);
+    box.replaceChildren(
+      el("div", { className: "cap", textContent: `${viewer.displayName || viewer.name}'s limiteds` }),
+      stat("Items", V.fmt(worthCache.length)),
+      stat("Value", V.fmt(value)),
+      stat("RAP", V.fmt(rap)),
+    );
+  } catch (err) {
+    box.replaceChildren(el("div", { className: "note-line", textContent: /403/.test(err.message) ? "Your inventory is private, so worth can't be counted." : `Couldn't load your limiteds (${err.message})` }));
+  }
+}
+
+function wireValues() {
+  $("value-search").addEventListener("input", renderValueResults);
+}
+
+// ---------- trade calculator ----------
+const MAX_ITEMS = 4; // Octane trades hold up to 4 items a side
+
+function calcTotals(side) {
+  const ids = settings.calc[side] || [];
+  const robux = Number(settings.calc[`${side}Robux`]) || 0;
+  return V.offerTotals(ids.map((id) => ({ assetId: id, rap: values[id]?.rap || 0 })), V.afterFee(robux), values);
+}
+
+async function saveCalc(patch) {
+  await update({ calc: { ...settings.calc, ...patch } });
+  renderCalc();
+}
+
+async function calcAdd(side, id) {
+  const list = [...(settings.calc[side] || [])];
+  if (list.length >= MAX_ITEMS) return;
+  list.push(id);
+  await saveCalc({ [side]: list });
+  const d = document.querySelector('details[data-key="calc"]');
+  if (d && !d.open) d.open = true;
+}
+
+function renderCalc() {
+  for (const side of ["give", "get"]) {
+    const ul = $(`${side}-items`);
+    ul.replaceChildren();
+    (settings.calc[side] || []).forEach((id, idx) => {
+      const v = values[id] || { id, name: `Item #${id}`, value: 0, rap: 0, demand: -1, trend: -1 };
+      ul.append(itemRow(v, [iconBtn("×", "Remove", () => {
+        const next = [...settings.calc[side]];
+        next.splice(idx, 1);
+        saveCalc({ [side]: next });
+      })], true));
+    });
+    const t = calcTotals(side);
+    $(`${side}-total`).textContent = t.count || t.robux ? `V ${V.fmt(t.value)} · RAP ${V.fmt(t.rap)}` : "";
+    const robuxInput = document.querySelector(`.calc-robux[data-side="${side}"]`);
+    if (document.activeElement !== robuxInput) robuxInput.value = settings.calc[`${side}Robux`] || "";
+    document.querySelector(`.calc-add[data-side="${side}"]`).disabled = (settings.calc[side] || []).length >= MAX_ITEMS;
+  }
+
+  const give = calcTotals("give"), get = calcTotals("get");
+  const vd = V.verdict(give, get);
+  const box = $("calc-verdict");
+  box.className = `calc-verdict ${vd.kind}`;
+  if (vd.kind === "empty") {
+    box.replaceChildren();
+    $("calc-meta").textContent = "";
+    return;
+  }
+  const sign = vd.diff > 0 ? "+" : vd.diff < 0 ? "−" : "±";
+  const word = vd.kind === "win" ? "WIN" : vd.kind === "loss" ? "LOSS" : "FAIR";
+  const pct = Number.isFinite(vd.pct) ? ` (${sign}${Math.abs(vd.pct).toFixed(1)}%)` : "";
+  const warns = [];
+  if (get.flags.projected.length) warns.push(`projected: ${get.flags.projected.join(", ")}`);
+  if (get.flags.lowDemand.length) warns.push(`low demand: ${get.flags.lowDemand.join(", ")}`);
+  box.replaceChildren(`${word} ${sign}${V.fmt(Math.abs(vd.diff))}${pct}`);
+  if (warns.length) box.append(el("small", { textContent: `⚠ ${warns.join(" · ")}` }));
+  $("calc-meta").textContent = `${word} ${sign}${Math.abs(vd.pct).toFixed(0)}%`;
+}
+
+function wireCalc() {
+  for (const input of document.querySelectorAll(".calc-add")) {
+    const side = input.dataset.side;
+    const box = input.nextElementSibling;
+    const show = () => {
+      const q = input.value.trim();
+      box.replaceChildren();
+      if (!q) { box.hidden = true; return; }
+      for (const v of V.search(values, q, 6)) {
+        const b = el("button", { type: "button" }, [
+          el("span", { textContent: v.name }),
+          el("span", { textContent: v.valued ? `V ${V.fmt(v.value)}` : `R ${V.fmt(v.rap)}` }),
+        ]);
+        b.addEventListener("mousedown", (e) => e.preventDefault()); // keep focus for keyboard users
+        b.addEventListener("click", () => {
+          input.value = "";
+          box.hidden = true;
+          calcAdd(side, v.id);
+        });
+        box.append(b);
+      }
+      box.hidden = box.childElementCount === 0;
+    };
+    input.addEventListener("input", show);
+    input.addEventListener("focus", show);
+    input.addEventListener("blur", () => setTimeout(() => { box.hidden = true; }, 120));
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") box.querySelector("button")?.click();
+      if (e.key === "Escape") box.hidden = true;
+    });
+  }
+  for (const input of document.querySelectorAll(".calc-robux")) {
+    input.addEventListener("input", () => {
+      input.value = input.value.replace(/[^\d]/g, "").slice(0, 9);
+      saveCalc({ [`${input.dataset.side}Robux`]: Number(input.value) || 0 });
+    });
+  }
+  $("calc-clear").addEventListener("click", () => saveCalc({ give: [], get: [], giveRobux: 0, getRobux: 0 }));
+}
+
+// ---------- site access (Firefox can install without host access) ----------
+const ORIGINS = ["https://octane.wtf/*", "https://*.octane.wtf/*", "https://octomons.wtf/*"];
+async function checkAccess() {
+  const ok = await ext.permissions.contains({ origins: ORIGINS }).catch(() => true);
+  $("access-notice").hidden = ok;
+  $("access-allow").onclick = async () => {
+    if (await ext.permissions.request({ origins: ORIGINS })) {
+      $("access-notice").hidden = true;
+      ext.runtime.sendMessage({ type: "refresh-friends" });
+      loadValues(true);
+    }
+  };
 }
 
 // ---------- settings ----------
@@ -448,10 +668,14 @@ function wireSections() {
 // ---------- boot ----------
 async function init() {
   settings = await S.load();
+  if (IN_TAB) {
+    document.body.classList.add("in-tab");
+    settings.openSections = [...new Set([...settings.openSections, "backgrounds"])];
+  }
   setAccent(settings.fieldColor);
   field = F.create($("field"), { color: settings.fieldColor, animate: settings.animatedBg });
 
-  $("version").textContent = "v" + chrome.runtime.getManifest().version;
+  $("version").textContent = "v" + ext.runtime.getManifest().version;
   renderStatus();
   renderThemes();
   renderCssNotice();
@@ -462,6 +686,11 @@ async function init() {
   wireFriends();
   renderLinks();
   wireLookup();
+  wireValues();
+  wireCalc();
+  renderCalc();
+  checkAccess();
+  loadValues();
   wireToggles();
   renderSwatches();
   wireSections();

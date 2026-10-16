@@ -1,21 +1,26 @@
-// Service worker: keeps the friends list fresh (your Octane friends plus any
+// Background: keeps the friends list fresh (your Octane friends plus any
 // extra watched users), shows the online count on the toolbar badge, sends
-// online / joined-a-game alerts, and fetches cross-origin stylesheets for
-// the theme engine.
-importScripts("shared/settings.js");
+// online / joined-a-game alerts, caches Octomons item values, and fetches
+// cross-origin stylesheets for the theme engine.
+// Chrome/Brave run this as a service worker; Firefox/Zen load the shared
+// scripts first via manifest "background.scripts".
+if (typeof importScripts === "function") {
+  importScripts("shared/compat.js", "shared/settings.js", "shared/values.js");
+}
 
 const S = globalThis.KeroseneSettings;
+const V = globalThis.KeroseneValues;
 const ALARM = "kerosene-friends";
 const AVATAR_TTL = 60 * 60 * 1000;
 
 function ensureAlarm() {
-  chrome.alarms.get(ALARM, (a) => {
-    if (!a) chrome.alarms.create(ALARM, { periodInMinutes: 1, delayInMinutes: 0.1 });
+  ext.alarms.get(ALARM, (a) => {
+    if (!a) ext.alarms.create(ALARM, { periodInMinutes: 1, delayInMinutes: 1 });
   });
 }
 
 function notify(id, title, message) {
-  chrome.notifications.create(`kerosene-${id}-${Date.now()}`, {
+  ext.notifications.create(`kerosene-${id}-${Date.now()}`, {
     type: "basic",
     iconUrl: "icons/icon128.png",
     title,
@@ -34,7 +39,7 @@ function pollFriends() {
 async function doPoll() {
   const settings = await S.load();
   const { viewer = null, friendStatus = {}, avatars = {}, avatarsAt = 0 } =
-    await chrome.storage.local.get(["viewer", "friendStatus", "avatars", "avatarsAt"]);
+    await ext.storage.local.get(["viewer", "friendStatus", "avatars", "avatarsAt"]);
   const next = {};
   let syncError = null;
 
@@ -77,7 +82,7 @@ async function doPoll() {
   }
 
   const checked = Date.now();
-  await chrome.storage.local.set({
+  await ext.storage.local.set({
     friendStatus: next,
     friendsMeta: { checked, syncError, synced: Boolean(settings.syncFriends && viewer?.id) },
     avatars: avatarMap,
@@ -85,29 +90,60 @@ async function doPoll() {
   });
 
   const online = Object.values(next).filter((f) => f.status !== "offline").length;
-  await chrome.action.setBadgeBackgroundColor({ color: "#4fa3e0" });
-  await chrome.action.setBadgeText({ text: settings.enabled && online ? String(online) : "" });
+  await ext.action.setBadgeBackgroundColor({ color: "#4fa3e0" });
+  await ext.action.setBadgeText({ text: settings.enabled && online ? String(online) : "" });
   return next;
 }
 
-chrome.runtime.onInstalled.addListener(() => { ensureAlarm(); pollFriends(); });
-chrome.runtime.onStartup.addListener(() => { ensureAlarm(); pollFriends(); });
-chrome.alarms.onAlarm.addListener((a) => { if (a.name === ALARM) pollFriends(); });
+// ---------- item values (Octomons) ----------
+let valuesLoading = null;
+async function getValues(force = false) {
+  const { itemValues = null, itemValuesAt = 0 } = await ext.storage.local.get(["itemValues", "itemValuesAt"]);
+  if (!force && itemValues && Date.now() - itemValuesAt < V.TTL) {
+    return { items: itemValues, updated: itemValuesAt };
+  }
+  valuesLoading ??= V.fetchValues()
+    .then(async (items) => {
+      const updated = Date.now();
+      await ext.storage.local.set({ itemValues: items, itemValuesAt: updated, itemValuesError: null });
+      return { items, updated };
+    })
+    .catch(async (err) => {
+      const error = String(err.message || err);
+      await ext.storage.local.set({ itemValuesError: error });
+      return { items: itemValues || {}, updated: itemValuesAt, error };
+    })
+    .finally(() => { valuesLoading = null; });
+  return valuesLoading;
+}
+
+function onTick() {
+  pollFriends();
+  getValues(); // refreshes when the cache is older than V.TTL
+}
+
+ext.runtime.onInstalled.addListener(() => { ensureAlarm(); onTick(); });
+ext.runtime.onStartup.addListener(() => { ensureAlarm(); onTick(); });
+ext.alarms.onAlarm.addListener((a) => { if (a.name === ALARM) onTick(); });
 
 // a new signed-in user (or a settings change) should refresh straight away
-chrome.storage.onChanged.addListener((changes, area) => {
+ext.storage.onChanged.addListener((changes, area) => {
   if (area === "local" && (changes.viewer || changes.syncFriends || changes.friends)) pollFriends();
 });
 
-chrome.notifications.onClicked.addListener((nid) => {
+ext.notifications.onClicked.addListener((nid) => {
   const m = nid.match(/^kerosene-(game|user)-(\d+)-/);
-  if (m) chrome.tabs.create({ url: m[1] === "game" ? `${S.SITE}/games/${m[2]}` : `${S.SITE}/users/${m[2]}/profile` });
-  chrome.notifications.clear(nid);
+  if (m) ext.tabs.create({ url: m[1] === "game" ? `${S.SITE}/games/${m[2]}` : `${S.SITE}/users/${m[2]}/profile` });
+  ext.notifications.clear(nid);
 });
 
-chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
+ext.runtime.onMessage.addListener((msg, _sender, reply) => {
   if (msg?.type === "refresh-friends") {
     pollFriends().then(reply, () => reply(null));
+    return true;
+  }
+  if (msg?.type === "get-values") {
+    getValues(Boolean(msg.force)).then(reply, (err) => reply({ items: {}, updated: 0, error: String(err) }));
     return true;
   }
   // Content scripts can't read cross-origin stylesheets; with host access the

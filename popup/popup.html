@@ -22,6 +22,11 @@
       <span class="pill" id="active-pill">original</span>
     </header>
 
+    <div class="notice" id="access-notice" hidden>
+      <span>Kerosene needs permission to read <b>octane.wtf</b> and <b>octomons.wtf</b> for themes, friends and values.</span>
+      <button class="btn small" id="access-allow" type="button">Allow</button>
+    </div>
+
     <nav class="sections">
       <!-- Themes -->
       <details class="drop" data-key="themes">
@@ -91,6 +96,54 @@
         </div>
       </details>
 
+      <!-- Item values -->
+      <details class="drop" data-key="values">
+        <summary><span class="chev">›</span> Item values <span class="meta" id="values-meta"></span></summary>
+        <div class="drop-body">
+          <div class="worth" id="worth" hidden></div>
+          <input type="search" id="value-search" class="input" placeholder="Search limiteds by name or acronym…">
+          <ul class="item-list" id="value-results"></ul>
+          <div class="inline between">
+            <span class="note" id="values-note"></span>
+            <a class="btn ghost small" href="https://octomons.wtf/catalog" target="_blank" rel="noopener">Octomons ↗</a>
+          </div>
+        </div>
+      </details>
+
+      <!-- Trade calculator -->
+      <details class="drop" data-key="calc">
+        <summary><span class="chev">›</span> Trade calculator <span class="meta" id="calc-meta"></span></summary>
+        <div class="drop-body">
+          <div class="calc-side" data-side="give">
+            <div class="calc-head"><span>You give</span><b id="give-total"></b></div>
+            <ul class="item-list compact" id="give-items"></ul>
+            <div class="calc-add-row">
+              <div class="suggest-wrap">
+                <input class="input calc-add" data-side="give" placeholder="+ add an item" autocomplete="off">
+                <ul class="suggest" hidden></ul>
+              </div>
+              <input class="input calc-robux" data-side="give" inputmode="numeric" placeholder="+ R$">
+            </div>
+          </div>
+          <div class="calc-side" data-side="get">
+            <div class="calc-head"><span>You get</span><b id="get-total"></b></div>
+            <ul class="item-list compact" id="get-items"></ul>
+            <div class="calc-add-row">
+              <div class="suggest-wrap">
+                <input class="input calc-add" data-side="get" placeholder="+ add an item" autocomplete="off">
+                <ul class="suggest" hidden></ul>
+              </div>
+              <input class="input calc-robux" data-side="get" inputmode="numeric" placeholder="+ R$">
+            </div>
+          </div>
+          <div class="calc-verdict" id="calc-verdict"></div>
+          <div class="inline between">
+            <span class="note">Robux counts after Octane's 30% fee.</span>
+            <button class="btn ghost small" id="calc-clear" type="button">Clear</button>
+          </div>
+        </div>
+      </details>
+
       <!-- Quick links -->
       <details class="drop" data-key="links">
         <summary><span class="chev">›</span> Quick links</summary>
@@ -128,6 +181,13 @@
               <span class="row-desc">The character field behind this menu</span>
             </span>
             <input type="checkbox" class="toggle" data-setting="animatedBg">
+          </label>
+          <label class="row">
+            <span>
+              <span class="row-title">Values on Octane pages</span>
+              <span class="row-desc">Value badges, trade WIN/LOSS and item panels</span>
+            </span>
+            <input type="checkbox" class="toggle" data-setting="showValues">
           </label>
           <label class="row">
             <span>
@@ -175,8 +235,10 @@
     </footer>
   </main>
 
+  <script src="../shared/compat.js"></script>
   <script src="../shared/settings.js"></script>
   <script src="../shared/themes.js"></script>
+  <script src="../shared/values.js"></script>
   <script src="../shared/char-field.js"></script>
   <script src="popup.js"></script>
 </body>
