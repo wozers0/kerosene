@@ -312,13 +312,20 @@ div.row { cursor: default; }
 .swatch:focus-visible { outline: 1px solid #fff; outline-offset: 2px; }
 
 /* ---------- friends & lookup ---------- */
-.friend-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-.friend-list:empty::before {
-  content: "// no friends watched yet — add a user ID";
-  color: var(--muted);
-  font-size: 10.5px;
-  padding: 4px 2px;
+.friend-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 264px;
+  overflow-y: auto;
 }
+.friend-list::-webkit-scrollbar { width: 4px; }
+.friend-list::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); border-radius: 2px; }
+.friend-list .empty-note { color: var(--muted); font-size: 10.5px; padding: 4px 2px; line-height: 1.5; }
+.group-label { color: var(--muted); font-size: 10px; letter-spacing: 0.6px; text-transform: uppercase; padding: 4px 2px 0; }
 
 .user {
   display: flex;
@@ -331,6 +338,7 @@ div.row { cursor: default; }
 }
 .avatar {
   position: relative;
+  background-position: center;
   flex-shrink: 0;
   width: 28px;
   height: 28px;
@@ -355,6 +363,12 @@ div.row { cursor: default; }
   background: #555;
 }
 .user.online .avatar::after { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+.user.ingame .avatar::after { background: #3fa9ff; box-shadow: 0 0 6px #3fa9ff; }
+.user.studio .avatar::after { background: #f5a524; box-shadow: 0 0 6px #f5a524; }
+.user.ingame .user-sub { color: #6fbfff; }
+.user.studio .user-sub { color: #f5c06a; }
+.user.offline { opacity: 0.62; }
+.user.offline:hover { opacity: 1; }
 .user-text { flex: 1; min-width: 0; }
 .user-name { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .user-sub { display: block; color: var(--muted); font-size: 10px; }

@@ -17,7 +17,7 @@
       </div>
       <div class="titles">
         <h1>kerosene<span class="cursor">_</span></h1>
-        <p class="sub">fuel for <b>octane</b></p>
+        <p class="sub" id="viewer-line">fuel for <b>octane</b></p>
       </div>
       <span class="pill" id="active-pill">original</span>
     </header>
@@ -71,14 +71,22 @@
       <details class="drop" data-key="friends">
         <summary><span class="chev">›</span> Friends <span class="meta" id="friends-meta"></span></summary>
         <div class="drop-body">
+          <label class="row compact">
+            <span>
+              <span class="row-title">Sync my Octane friends</span>
+              <span class="row-desc" id="sync-desc"></span>
+            </span>
+            <input type="checkbox" class="toggle" data-setting="syncFriends">
+          </label>
+          <input type="search" id="friend-filter" class="input" placeholder="Filter friends…" hidden>
+          <ul class="friend-list" id="friend-list"></ul>
           <form class="inline" id="friend-form">
-            <input type="text" inputmode="numeric" id="friend-id" class="input" placeholder="Octane user ID">
+            <input type="text" id="friend-id" class="input" placeholder="Also watch: username or ID">
             <button class="btn" type="submit">Watch</button>
           </form>
-          <ul class="friend-list" id="friend-list"></ul>
           <div class="inline between">
             <span class="note" id="friends-checked"></span>
-            <button class="btn ghost small" id="friends-refresh">Refresh</button>
+            <button class="btn ghost small" id="friends-refresh" type="button">Refresh</button>
           </div>
         </div>
       </details>
@@ -96,7 +104,7 @@
         <summary><span class="chev">›</span> User lookup</summary>
         <div class="drop-body">
           <form class="inline" id="lookup-form">
-            <input type="text" inputmode="numeric" id="lookup-id" class="input" placeholder="User ID">
+            <input type="text" id="lookup-id" class="input" placeholder="Username or ID">
             <button class="btn" type="submit">Find</button>
           </form>
           <div id="lookup-result"></div>
@@ -123,10 +131,24 @@
           </label>
           <label class="row">
             <span>
-              <span class="row-title">Friend online alerts</span>
-              <span class="row-desc">Notify when a watched friend comes online</span>
+              <span class="row-title">Online alerts</span>
+              <span class="row-desc">Notify when a friend comes online</span>
             </span>
             <input type="checkbox" class="toggle" data-setting="notifyOnline">
+          </label>
+          <label class="row">
+            <span>
+              <span class="row-title">Game alerts</span>
+              <span class="row-desc">Notify when a friend starts playing a game</span>
+            </span>
+            <input type="checkbox" class="toggle" data-setting="notifyGames">
+          </label>
+          <label class="row">
+            <span>
+              <span class="row-title">Octane seasonal decorations</span>
+              <span class="row-desc">Octane's Halloween (and other holiday) touches</span>
+            </span>
+            <input type="checkbox" class="toggle" data-setting="seasonal">
           </label>
           <div class="row">
             <span>

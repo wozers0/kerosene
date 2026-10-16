@@ -18,7 +18,7 @@
   let compiled = null; // activeTheme compiled against the detected page colour
   let pageColor = null;
   let buildSeq = 0;
-  let originalBodyClass = null;
+  let sheetSig = "";
   let field = null;
   let observer = null;
   let rebuildTimer = null, coverTimer = null;
@@ -53,6 +53,18 @@
   }
 
   // ---------- recolouring ----------
+  // Every colour-carrying declaration is re-emitted as !important, changed or
+  // not. Re-emitting only the changed ones would break the page's own
+  // cascade: a recoloured light-mode rule would beat the dark-mode rule that
+  // overrides it with "transparent".
+  const COLOR_PROPS = new Set([
+    "color", "background-color", "background-image", "fill", "stroke", "caret-color", "accent-color",
+    "outline-color", "text-decoration-color", "column-rule-color",
+    "-webkit-text-fill-color", "-webkit-text-stroke-color",
+    "border-top-color", "border-right-color", "border-bottom-color", "border-left-color",
+  ]);
+
+  // -> { decls: [[prop, value]], changed: boolean }
   function themedDecls(style) {
     const theme = compiled.theme;
     const props = [];
@@ -60,33 +72,38 @@
     // backgrounds first, so text sitting on an accent fill can stay light
     props.sort((a, b) => Number(b.startsWith("background")) - Number(a.startsWith("background")));
 
-    const out = [];
-    let bgAccent = false;
+    const decls = [];
+    let changed = false, bgAccent = false;
     for (const prop of props) {
       const val = style.getPropertyValue(prop);
       if (!val) continue;
       if (RADIUS_PROPS.has(prop)) {
-        if (theme.radius != null && /^[\d.]+px$/.test(val.trim())) {
+        if (theme.radius == null) continue;
+        let out = val;
+        if (/^[\d.]+px$/.test(val.trim())) {
           const px = parseFloat(val);
-          if (px > 0 && px < 40) out.push([prop, `${Math.round((px * theme.radius) / 12)}px`]);
+          if (px > 0 && px < 40) out = `${Math.round((px * theme.radius) / 12)}px`;
         }
+        changed ||= out !== val;
+        decls.push([prop, out]);
         continue;
       }
+      if (!COLOR_PROPS.has(prop) && !prop.startsWith("--")) continue;
       const kind = T.kindOf(prop);
       if (!kind) continue;
       const r = T.rewriteValue(val, compiled, kind, kind === "fg" && bgAccent);
-      if (!r.changed) continue;
       if (kind === "bg" && r.roles.includes("accent")) bgAccent = true;
-      out.push([prop, r.value]);
+      changed ||= r.changed;
+      decls.push([prop, r.value]);
     }
-    return out;
+    return { decls, changed };
   }
 
   function processRules(rules) {
     let css = "";
     for (const rule of rules) {
       if (rule.type === 1) { // CSSStyleRule
-        const decls = themedDecls(rule.style);
+        const { decls } = themedDecls(rule.style);
         if (decls.length) {
           css += `${rule.selectorText}{${decls.map(([p, v]) => `${p}:${v} !important`).join(";")}}\n`;
         }
@@ -172,12 +189,21 @@
     return found;
   }
 
+  // Measured with Kerosene's own styles switched off, so the theme's page
+  // colour on <body> isn't mistaken for the site's.
   function pageColorFromLayout() {
-    for (const el of [document.body, document.documentElement, ...findCovers()]) {
-      const c = T.parseColor(getComputedStyle(el).backgroundColor);
-      if (c && c.a >= 0.9) return c;
+    const own = [...document.querySelectorAll(`style[id^="${OWN}"]`)].filter((s) => !s.disabled);
+    own.forEach((s) => { s.disabled = true; });
+    try {
+      for (const el of [document.body, document.documentElement, ...findCovers()]) {
+        if (el.hasAttribute("data-kero-clear")) continue;
+        const c = T.parseColor(getComputedStyle(el).backgroundColor);
+        if (c && c.a >= 0.9) return c;
+      }
+      return null;
+    } finally {
+      own.forEach((s) => { s.disabled = false; });
     }
-    return null;
   }
 
   async function buildRecolor() {
@@ -185,6 +211,7 @@
     const seq = ++buildSeq;
     const lists = await collectRules();
     if (seq !== buildSeq || !activeTheme) return;
+    sheetSig = signature();
 
     pageColor = pageColorFromRules(lists) || pageColor || pageColorFromLayout();
     compiled = T.compile(activeTheme, pageColor);
@@ -199,8 +226,8 @@
   function rewriteInline(el) {
     const orig = el.getAttribute("style");
     if (!orig || inlineWritten.get(el) === orig) return;
-    const decls = themedDecls(el.style);
-    if (!decls.length) return;
+    const { decls, changed } = themedDecls(el.style);
+    if (!changed) return;
     inlineOrig.set(el, orig);
     for (const [p, v] of decls) el.style.setProperty(p, v, "important");
     inlineWritten.set(el, el.getAttribute("style"));
@@ -342,14 +369,70 @@
     }
   }
 
-  // Start from Roblox's own light or dark theme (icons, sprites, contrast).
-  function applyBase(theme) {
-    const b = document.body;
-    if (!theme.base || !b) return;
-    if (!b.classList.contains("dark-theme") && !b.classList.contains("light-theme")) return;
-    originalBodyClass = b.className;
-    b.classList.remove("dark-theme", "light-theme");
-    b.classList.add(`${theme.base}-theme`);
+  // ---------- Octane integration ----------
+  // Octane's own light/dark switch: localStorage.rbx_theme_v1 plus an
+  // "octane-theme-change" event (its head script swaps light-theme/dark-theme
+  // classes and the *_light.css / *_dark.css files). Era themes pick a base
+  // mode through it, and the user's own choice is restored afterwards.
+  const SITE_THEME = "rbx_theme_v1";
+  const SAVED_THEME = "kerosene_prev_rbx_theme";
+  function setSiteMode(mode) {
+    try {
+      const ls = localStorage;
+      if (mode) {
+        if (ls.getItem(SAVED_THEME) === null) ls.setItem(SAVED_THEME, ls.getItem(SITE_THEME) ?? "");
+        if ((ls.getItem(SITE_THEME) === "dark") === (mode === "dark")) return;
+        ls.setItem(SITE_THEME, mode);
+      } else {
+        const prev = ls.getItem(SAVED_THEME);
+        if (prev === null) return;
+        ls.removeItem(SAVED_THEME);
+        if (prev) ls.setItem(SITE_THEME, prev);
+        else ls.removeItem(SITE_THEME);
+      }
+      window.dispatchEvent(new Event("octane-theme-change"));
+    } catch { /* storage blocked */ }
+  }
+
+  // Octane's seasonal (Halloween) decorations: localStorage.octane_halloween_v1
+  function applySeasonal() {
+    try {
+      const ls = localStorage;
+      const off = settings.enabled && settings.seasonal === false;
+      if (off && ls.getItem("octane_halloween_v1") !== "off") {
+        ls.setItem("octane_halloween_v1", "off");
+        ls.setItem("kerosene_seasonal_off", "1");
+        document.documentElement.classList.remove("octane-halloween");
+      } else if (!off && ls.getItem("kerosene_seasonal_off")) {
+        ls.removeItem("octane_halloween_v1");
+        ls.removeItem("kerosene_seasonal_off");
+        document.documentElement.classList.add("octane-halloween");
+      }
+    } catch { /* storage blocked */ }
+  }
+
+  // Who's signed in: <meta name="octane-viewer" data-id data-name ...>
+  async function rememberViewer() {
+    const m = document.querySelector('meta[name="octane-viewer"]');
+    const id = Number(m?.dataset.id);
+    if (!id) return;
+    const viewer = { id, name: m.dataset.name || "", displayName: m.dataset.displayname || m.dataset.name || "" };
+    const { viewer: known } = await chrome.storage.local.get("viewer");
+    if (!known || known.id !== viewer.id || known.name !== viewer.name || known.displayName !== viewer.displayName) {
+      await chrome.storage.local.set({ viewer });
+    }
+  }
+
+  // Octane is a Next.js app: styles also arrive via CSSOM insertRule (JSS)
+  // and on client-side navigation, so watch the stylesheet rule counts.
+  function signature() {
+    let sig = "";
+    for (const sheet of document.styleSheets) {
+      const owner = sheet.ownerNode;
+      if (owner?.id?.startsWith(OWN)) continue;
+      try { sig += sheet.cssRules.length + ","; } catch { sig += "x,"; }
+    }
+    return sig;
   }
 
   // ---------- lifecycle ----------
@@ -365,8 +448,6 @@
       el.removeAttribute("data-kero-hide");
     }
     restoreInline();
-    if (originalBodyClass !== null && document.body) document.body.className = originalBodyClass;
-    originalBodyClass = null;
     activeTheme = null;
     compiled = null;
     pageColor = null;
@@ -386,13 +467,15 @@
 
   async function applyAll() {
     teardown();
+    applySeasonal();
+    const theme = settings.enabled ? T.THEMES[settings.theme] : null;
+    setSiteMode(theme?.base || null);
     if (!settings.enabled) return;
 
-    const theme = T.THEMES[settings.theme];
     if (theme?.palette) {
       activeTheme = theme;
-      applyBase(theme);
       applyFont(theme);
+      addStyle("page", `body { background-color: ${theme.palette.page} !important; }`, true);
       if (theme.extraCss) addStyle("extra", theme.extraCss, true);
       await buildRecolor();
     }
@@ -442,17 +525,29 @@
 
     const ready = async () => {
       startObserver();
+      rememberViewer();
       await applyAll();
       uncloak();
     };
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", ready, { once: true });
     else ready();
 
-    // late stylesheets / layout
+    // late stylesheets / layout; link load events don't bubble, so capture
     window.addEventListener("load", () => { scheduleRebuild(); scheduleCovers(); });
     window.addEventListener("resize", scheduleCovers);
+    document.addEventListener("load", (e) => {
+      if (e.target?.tagName === "LINK") scheduleRebuild();
+    }, true);
+    let lastUrl = location.href;
+    setInterval(() => {
+      if (activeTheme && signature() !== sheetSig) scheduleRebuild();
+      if (location.href !== lastUrl) {
+        lastUrl = location.href;
+        scheduleCovers();
+      }
+    }, 1000);
 
-    const WATCHED = ["enabled", "theme", "themeFonts", "bg", "fieldColor", "cssRetry"];
+    const WATCHED = ["enabled", "theme", "themeFonts", "seasonal", "bg", "fieldColor", "cssRetry"];
     chrome.storage.onChanged.addListener(async (changes, area) => {
       if (area !== "local" || !WATCHED.some((k) => k in changes)) return;
       if (changes.cssRetry) cssCache.clear();

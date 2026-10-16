@@ -29,8 +29,8 @@
       id: "original",
       label: "Original",
       year: "2021–22",
-      blurb: "Octane as it ships",
-      swatch: { page: "#232527", card: "#393b3d", accent: "#00a2ff", text: "#ffffff", bar: "#191b1d" },
+      blurb: "Octane as it ships, in your own light/dark setting",
+      swatch: { page: "linear-gradient(135deg, #f2f4f5 50%, #232527 50%)", card: "rgba(128, 128, 128, 0.35)", accent: "#00a2ff", text: "#9a9a9a", bar: "rgba(128, 128, 128, 0.45)" },
     },
     2018: {
       id: "2018",
@@ -215,7 +215,7 @@
   // background. Roblox cards/sections sit above the page (#393b3d on #232527,
   // #fff on #f2f4f5); headers and inputs sit below it.
   const ELEVATION_STOPS = [
-    [-0.12, "recessed2"], [-0.04, "recessed"], [0, "page"], [0.08, "card"], [0.15, "raised"], [0.25, "raised2"],
+    [-0.12, "recessed2"], [-0.04, "recessed"], [0, "page"], [0.085, "card"], [0.15, "raised"], [0.25, "raised2"],
   ];
 
   // pageColor: the site's detected page background (before theming)
@@ -225,15 +225,18 @@
     for (const [k, v] of Object.entries(theme.palette)) pal[k] = parseColor(v);
     const stops = ELEVATION_STOPS.map(([e, key]) => [e, pal[key]]);
     const accent = rgbToHsl(pal.accent);
-    const P = rgbToHsl(pageColor || { r: 35, g: 37, b: 39 }).l;
+    let P = rgbToHsl(pageColor || { r: 35, g: 37, b: 39 }).l;
     const dark = P < 0.5;
+    // Octane's light mode is white on white (Bootstrap); treat white as a card
+    // surface and let the theme paint the page colour on <body>.
+    if (!dark) P = Math.min(P, 0.955);
 
     return {
       theme, pal, P, dark,
       surface(l) {
         let e = l - P;
         // a light site has little room above its page colour: white == card
-        if (!dark && e > 0) e = (e / Math.max(0.02, 1 - P)) * 0.08;
+        if (!dark && e > 0) e = (e / Math.max(0.02, 1 - P)) * 0.085;
         if (e <= stops[0][0]) return stops[0][1];
         for (let i = 1; i < stops.length; i++) {
           if (e <= stops[i][0]) {
@@ -251,7 +254,8 @@
     };
   }
 
-  // kind: "fg" (text colour), "bg" (fills), "line" (borders/outlines)
+  // kind: "fg" (text colour), "bg" (fills), "line" (borders/outlines),
+  // "accentOnly" (ambiguous custom properties)
   // Returns { css, role } or null when the colour should be left alone.
   function mapColor(c, k, kind, onAccent) {
     if (!c || c.a === 0) return null;
@@ -262,6 +266,7 @@
       if (h >= 185 && h <= 300) return { css: toCss(k.accent(l), c.a), role: "accent" };
       return null;
     }
+    if (kind === "accentOnly") return null;
     if (l < 0.06 && c.a < 0.9) return null; // translucent black overlays
 
     const pal = k.pal;
@@ -312,7 +317,13 @@
     if (prop.startsWith("background")) return "bg";
     if (prop.startsWith("border") || prop.startsWith("outline") || prop === "column-rule-color") return "line";
     if (prop === "box-shadow" || prop === "text-shadow" || prop === "filter") return null;
-    if (prop.startsWith("--")) return "bg";
+    if (prop.startsWith("--")) {
+      // custom properties: guess the role from the name (Bootstrap's --bs-*)
+      if (/(^|-)(bg|background)(-|$)/.test(prop)) return "bg";
+      if (/border|outline|divider/.test(prop)) return "line";
+      if (/color|text|link|heading|emphasis/.test(prop)) return "fg";
+      return "accentOnly"; // e.g. --bs-gray-600: only recolour if it's an accent blue
+    }
     return "fg"; // color, fill, stroke, caret-color, text-decoration-color, ...
   }
 

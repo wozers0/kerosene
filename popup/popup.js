@@ -203,82 +203,152 @@ function wireBackgrounds() {
 }
 
 // ---------- friends ----------
-function userRow(u, actions) {
-  const avatar = el("div", { className: "avatar", textContent: (u.name || "?").replace("#", "")[0]?.toUpperCase() || "?" });
-  if (u.avatar) {
-    avatar.style.backgroundImage = `url("${u.avatar}")`;
+const STATUS_ORDER = { ingame: 0, studio: 1, online: 2, offline: 3 };
+
+function statusText(u) {
+  if (u.error) return "couldn't check";
+  if (u.status === "ingame") return `playing ${u.location}`;
+  if (u.status === "studio") return "in Studio";
+  return u.status === "online" ? "online" : "offline";
+}
+
+function userRow(u, avatars, actions) {
+  const label = u.displayName || u.name || `#${u.id}`;
+  const avatar = el("div", { className: "avatar", textContent: label.replace("#", "")[0]?.toUpperCase() || "?" });
+  const img = avatars[u.id] || u.avatar;
+  if (img) {
+    avatar.style.backgroundImage = `url("${img}")`;
     avatar.textContent = "";
   }
-  const sub = u.error ? `#${u.id} · couldn't check` : `#${u.id} · ${u.online ? "online" : "offline"}`;
-  const li = el("li", { className: "user" + (u.online ? " online" : "") }, [
+  const handle = u.name && u.name !== label ? `@${u.name} · ` : "";
+  const li = el("li", { className: `user ${u.error ? "offline" : u.status || "offline"}`, title: `${label} (#${u.id})` }, [
     avatar,
     el("div", { className: "user-text" }, [
-      el("span", { className: "user-name", textContent: u.name }),
-      el("span", { className: "user-sub", textContent: sub }),
+      el("span", { className: "user-name", textContent: label }),
+      el("span", { className: "user-sub", textContent: `${handle}${statusText(u)}` }),
     ]),
     ...actions,
   ]);
   return li;
 }
 
-async function renderFriends() {
-  const { friendStatus = {} } = await chrome.storage.local.get("friendStatus");
-  const list = $("friend-list");
-  list.replaceChildren();
-
-  const people = settings.friends.map((id) => friendStatus[id] || { id, name: `#${id}`, online: false });
-  people.sort((a, b) => Number(b.online) - Number(a.online) || String(a.name).localeCompare(String(b.name)));
-
-  for (const u of people) {
-    const open = el("button", { className: "btn ghost icon", title: "Open profile", textContent: "↗" });
-    open.addEventListener("click", () => openSite(`/users/${u.id}/profile`));
-    const remove = el("button", { className: "btn ghost icon", title: "Stop watching", textContent: "×" });
-    remove.addEventListener("click", async () => {
-      await update({ friends: settings.friends.filter((f) => f !== u.id) });
-      renderFriends();
-      chrome.runtime.sendMessage({ type: "refresh-friends" });
-    });
-    list.append(userRow(u, [open, remove]));
-  }
-
-  const online = people.filter((u) => u.online).length;
-  $("friends-meta").textContent = people.length ? `${online}/${people.length} online` : "";
-  const last = Math.max(0, ...Object.values(friendStatus).map((f) => f.checked || 0));
-  $("friends-checked").textContent = people.length ? `checked ${timeAgo(last)} · every minute` : "";
+function iconBtn(text, title, onClick, cls = "btn ghost icon") {
+  const b = el("button", { className: cls, title, textContent: text, type: "button" });
+  b.addEventListener("click", onClick);
+  return b;
 }
 
-async function addFriend(raw) {
-  const id = Number(String(raw).trim());
-  if (!Number.isInteger(id) || id <= 0) throw new Error("Enter a numeric user ID");
-  if (settings.friends.includes(id)) throw new Error("Already watching them");
-  const user = await S.fetchUser(id);
+async function renderFriends() {
+  const { friendStatus = {}, avatars = {}, friendsMeta = {}, viewer = null } =
+    await chrome.storage.local.get(["friendStatus", "avatars", "friendsMeta", "viewer"]);
+  const list = $("friend-list");
+  const filter = $("friend-filter").value.trim().toLowerCase();
+
+  $("sync-desc").textContent = viewer
+    ? `Signed in as ${viewer.displayName || viewer.name}`
+    : "Open octane.wtf while signed in to link your account";
+
+  let people = Object.values(friendStatus);
+  // watched users that haven't been checked yet
+  for (const id of settings.friends) {
+    if (!friendStatus[id]) people.push({ id, name: `#${id}`, status: "offline" });
+  }
+  people.sort((a, b) =>
+    (STATUS_ORDER[a.status] ?? 3) - (STATUS_ORDER[b.status] ?? 3) ||
+    String(a.displayName || a.name).localeCompare(String(b.displayName || b.name)));
+
+  const total = people.length;
+  const online = people.filter((u) => u.status && u.status !== "offline").length;
+  $("friend-filter").hidden = total < 8;
+  if (filter) {
+    people = people.filter((u) => `${u.displayName} ${u.name} ${u.id}`.toLowerCase().includes(filter));
+  }
+
+  list.replaceChildren();
+  let lastGroup = null;
+  for (const u of people) {
+    const group = u.status === "offline" || !u.status ? "Offline" : "Online";
+    if (group !== lastGroup && total >= 4) {
+      list.append(el("li", { className: "group-label", textContent: group === "Online" ? `Online — ${online}` : `Offline — ${total - online}` }));
+      lastGroup = group;
+    }
+    const actions = [];
+    if (u.status === "ingame" && u.placeId) {
+      actions.push(iconBtn("Join", `Open ${u.location}`, () => openSite(`/games/${u.placeId}`), "btn small"));
+    }
+    actions.push(iconBtn("↗", "Open profile", () => openSite(`/users/${u.id}/profile`)));
+    if (!u.friend) {
+      actions.push(iconBtn("×", "Stop watching", async () => {
+        await update({ friends: settings.friends.filter((f) => f !== u.id) });
+        const { friendStatus: fs = {} } = await chrome.storage.local.get("friendStatus");
+        delete fs[u.id];
+        await chrome.storage.local.set({ friendStatus: fs });
+        renderFriends();
+      }));
+    }
+    list.append(userRow(u, avatars, actions));
+  }
+  if (!people.length) {
+    list.append(el("li", {
+      className: "empty-note",
+      textContent: filter ? "// nobody matches that filter"
+        : settings.syncFriends && viewer ? "// your Octane friends list is empty"
+        : "// sync your Octane friends, or watch someone by username / ID",
+    }));
+  }
+
+  $("friends-meta").textContent = total ? `${online}/${total} online` : "";
+  const note = friendsMeta.syncError ? `sync failed (${friendsMeta.syncError})`
+    : friendsMeta.checked ? `checked ${timeAgo(friendsMeta.checked)} · every minute` : "";
+  $("friends-checked").textContent = note;
+  $("friends-checked").classList.toggle("err", Boolean(friendsMeta.syncError));
+}
+
+async function watchUser(query) {
+  const user = await S.resolveUser(query);
+  if (settings.friends.includes(user.id)) throw new Error(`Already watching ${user.name}`);
   const { friendStatus = {} } = await chrome.storage.local.get("friendStatus");
-  friendStatus[id] = { ...user, checked: Date.now() };
+  if (friendStatus[user.id]?.friend) throw new Error(`${user.name} is already on your friends list`);
+  friendStatus[user.id] = user;
   await chrome.storage.local.set({ friendStatus });
-  await update({ friends: [...settings.friends, id] });
+  await update({ friends: [...settings.friends, user.id] });
   renderFriends();
   return user;
+}
+
+async function renderViewer() {
+  const { viewer = null } = await chrome.storage.local.get("viewer");
+  const line = $("viewer-line");
+  line.replaceChildren("fuel for ", el("b", { textContent: "octane" }));
+  if (viewer) line.append(` · ${viewer.displayName || viewer.name}`);
 }
 
 function wireFriends() {
   $("friend-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const input = $("friend-id");
+    const note = $("friends-checked");
+    note.classList.remove("err");
+    note.textContent = "looking up…";
     try {
-      await addFriend(input.value);
+      const u = await watchUser(input.value);
       input.value = "";
-      $("friends-checked").textContent = "added";
+      note.textContent = `watching ${u.name}`;
     } catch (err) {
-      $("friends-checked").textContent = err.message;
+      note.textContent = err.message;
+      note.classList.add("err");
     }
   });
+  $("friend-filter").addEventListener("input", renderFriends);
   $("friends-refresh").addEventListener("click", async () => {
     $("friends-checked").textContent = "checking…";
     await chrome.runtime.sendMessage({ type: "refresh-friends" });
     renderFriends();
   });
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === "local" && changes.friendStatus) renderFriends();
+    if (area !== "local") return;
+    if (changes.friendStatus || changes.friendsMeta || changes.avatars) renderFriends();
+    if (changes.viewer) { renderViewer(); renderFriends(); }
   });
 }
 
@@ -296,30 +366,38 @@ function wireLookup() {
   $("lookup-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const out = $("lookup-result");
-    const id = $("lookup-id").value.trim();
-    if (!/^\d+$/.test(id)) {
-      out.replaceChildren(el("p", { className: "note err", textContent: "Enter a numeric user ID." }));
-      return;
-    }
+    const query = $("lookup-id").value.trim().replace(/^@/, "");
+    if (!query) return;
     out.replaceChildren(el("p", { className: "note", textContent: "looking up…" }));
     try {
-      const u = await S.fetchUser(id);
-      const open = el("button", { className: "btn ghost small", textContent: "Profile" });
-      open.addEventListener("click", () => openSite(`/users/${u.id}/profile`));
-      const watch = el("button", { className: "btn small", textContent: settings.friends.includes(u.id) ? "Watching" : "Watch" });
-      watch.disabled = settings.friends.includes(u.id);
-      watch.addEventListener("click", async () => {
-        try {
-          await addFriend(u.id);
-          watch.textContent = "Watching";
-          watch.disabled = true;
-        } catch (err) {
-          watch.textContent = err.message;
-        }
+      let users;
+      if (/^\d+$/.test(query)) users = [await S.fetchUser(query)];
+      else {
+        const hits = await S.searchUsers(query);
+        users = await Promise.all(hits.slice(0, 6).map((h) => S.fetchUser(h.id).then((u) => ({ ...u, displayName: h.displayName }), () => ({ ...h, status: "offline" }))));
+      }
+      if (!users.length) throw new Error("no matches");
+      const avatars = await S.fetchHeadshots(users.map((u) => u.id));
+      const { friendStatus = {} } = await chrome.storage.local.get("friendStatus");
+
+      const rows = users.map((u) => {
+        const known = settings.friends.includes(u.id) || friendStatus[u.id]?.friend;
+        const watch = iconBtn(known ? "✓" : "+", known ? "Already in your list" : "Watch", async () => {
+          try {
+            await watchUser(u.id);
+            watch.textContent = "✓";
+            watch.disabled = true;
+          } catch (err) {
+            watch.title = err.message;
+            watch.textContent = "!";
+          }
+        });
+        watch.disabled = Boolean(known);
+        return userRow(u, avatars, [iconBtn("↗", "Open profile", () => openSite(`/users/${u.id}/profile`)), watch]);
       });
-      out.replaceChildren(el("ul", { className: "friend-list" }, [userRow(u, [open, watch])]));
+      out.replaceChildren(el("ul", { className: "friend-list" }, rows));
     } catch (err) {
-      out.replaceChildren(el("p", { className: "note err", textContent: `Couldn't find user ${id} (${err.message}).` }));
+      out.replaceChildren(el("p", { className: "note err", textContent: `Couldn't find "${query}" (${err.message}).` }));
     }
   });
 }
@@ -332,6 +410,7 @@ function wireToggles() {
     input.addEventListener("change", async () => {
       await update({ [key]: input.checked });
       if (key === "animatedBg") field.setRunning(input.checked);
+      if (key === "syncFriends") renderFriends();
     });
   }
 }
@@ -378,6 +457,7 @@ async function init() {
   renderCssNotice();
   renderBackgrounds();
   wireBackgrounds();
+  renderViewer();
   renderFriends();
   wireFriends();
   renderLinks();
