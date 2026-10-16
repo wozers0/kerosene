@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Kerosene</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <canvas id="code-bg" aria-hidden="true"></canvas>
+  <div class="vignette" aria-hidden="true"></div>
+
+  <main class="shell">
+    <header class="brand">
+      <div class="logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="22" height="22">
+          <path fill="currentColor" d="M12 2c.6 3.2-1.1 4.9-2.6 6.6C7.9 10.3 6.5 12 6.5 14.6 6.5 18.4 9 21 12 21s5.5-2.6 5.5-6.2c0-2.3-1-4-2.2-5.4-.3 1.6-1.1 2.7-2.3 3.2.5-2.9-.1-6.6-1-10.6Z"/>
+        </svg>
+      </div>
+      <div class="titles">
+        <h1>kerosene<span class="cursor">_</span></h1>
+        <p class="sub">fuel for <b>octane</b></p>
+      </div>
+      <span class="ver" id="version">v0.1.0</span>
+    </header>
+
+    <nav class="sections" id="sections">
+      <details class="drop" data-key="general" open>
+        <summary><span class="chev">›</span> General</summary>
+        <div class="drop-body">
+          <label class="row">
+            <span>
+              <span class="row-title">Enable Kerosene</span>
+              <span class="row-desc">Master switch for all features</span>
+            </span>
+            <input type="checkbox" class="toggle" data-setting="enabled" checked>
+          </label>
+          <label class="row">
+            <span>
+              <span class="row-title">Animated background</span>
+              <span class="row-desc">Scrolling code behind this menu</span>
+            </span>
+            <input type="checkbox" class="toggle" data-setting="animatedBg" checked>
+          </label>
+        </div>
+      </details>
+
+      <details class="drop" data-key="features">
+        <summary><span class="chev">›</span> Features</summary>
+        <div class="drop-body">
+          <p class="empty">// features coming soon — tell me what to add</p>
+        </div>
+      </details>
+
+      <details class="drop" data-key="about">
+        <summary><span class="chev">›</span> About</summary>
+        <div class="drop-body">
+          <p class="about">Kerosene is an unofficial companion extension for the Octane revival.</p>
+        </div>
+      </details>
+    </nav>
+
+    <footer class="foot">
+      <span class="status"><span class="dot"></span> ready</span>
+      <span class="hint">octane // 2021–2022</span>
+    </footer>
+  </main>
+
+  <script src="code-bg.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
