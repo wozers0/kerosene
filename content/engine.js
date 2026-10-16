@@ -171,6 +171,7 @@
   const BODY_SEL = /(^|[\s,>+~(])(html|body)(?![\w-])|#rbx-body|\.rbx-body|\.(dark|light)-theme/i;
   function pageColorFromRules(lists) {
     let found = null;
+    let foundImportant = false;
     const visit = (rules) => {
       for (const r of rules) {
         if (r.type === 1) {
@@ -181,7 +182,13 @@
           try {
             hit = document.body.matches(r.selectorText) || document.documentElement.matches(r.selectorText);
           } catch { /* selector the DOM API can't match */ }
-          if (hit) found = c;
+          // like the cascade: an !important page colour (Octane's dark-mode
+          // override on its older light pages) beats later normal rules
+          const important = r.style.getPropertyPriority("background-color") === "important";
+          if (hit && (important || !foundImportant)) {
+            found = c;
+            foundImportant = foundImportant || important;
+          }
         } else if (r.type === 4) {
           if (matchMedia(r.media.mediaText).matches) visit(r.cssRules);
         } else if (r.type === 12) {
@@ -382,6 +389,11 @@
     // hidden frame (display:none): no real viewport or layout to judge by
     if (!document.body || !vw || !vh || !document.documentElement.getBoundingClientRect().width) return null;
     const tones = pageTones();
+    // The body itself always goes see-through: Octane paints it from script
+    // (an inline "background: #232527" in dark mode), and a theme recolouring
+    // that inline style writes it back as !important, which would otherwise
+    // beat the transparent rule and cover the background.
+    out.push(document.body);
     const walk = (el, depth) => {
       for (const child of el.children) {
         if (child.id && child.id.startsWith(OWN)) continue;
