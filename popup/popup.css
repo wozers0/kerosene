@@ -97,6 +97,9 @@ h1 {
 .drop { overflow: hidden; transition: border-color 0.2s; }
 .drop[open] { border-color: rgba(var(--accent), 0.35); overflow: visible; } /* let suggestion lists spill out */
 .drop[open] > summary { border-radius: 10px 10px 0 0; }
+/* each section is its own stacking context (backdrop-filter), so lift the
+   one showing a suggestion list above the sections after it */
+.drop:focus-within, .drop:has(.suggest:not([hidden])) { position: relative; z-index: 3; }
 
 .drop summary {
   list-style: none;
@@ -508,5 +511,6 @@ body.off .dot { background: var(--muted); box-shadow: none; }
 
 @media (prefers-reduced-motion: reduce) {
   .cursor, .drop-body { animation: none; }
+  .bg-tile { animation: none !important; } /* the Aurora preview animates inline */
 }
 @keyframes kerosene-aurora { 0%, 100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }

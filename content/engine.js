@@ -20,6 +20,8 @@
   let buildSeq = 0;
   let sheetSig = "";
   let bgActive = false;
+  let contrastBoost = false; // light theme + custom background
+  let coverWidth = 0; // viewport width the cover marks were computed for
   let field = null;
   let observer = null;
   let rebuildTimer = null, coverTimer = null;
@@ -196,7 +198,7 @@
     const own = [...document.querySelectorAll(`style[id^="${OWN}"]`)].filter((s) => !s.disabled);
     own.forEach((s) => { s.disabled = true; });
     try {
-      for (const el of [document.body, document.documentElement, ...findCovers()]) {
+      for (const el of [document.body, document.documentElement, ...(findCovers() || [])]) {
         if (el.hasAttribute("data-kero-clear")) continue;
         const c = T.parseColor(getComputedStyle(el).backgroundColor);
         if (c && c.a >= 0.9) return c;
@@ -215,7 +217,7 @@
     sheetSig = signature();
 
     pageColor = pageColorFromRules(lists) || pageColor || pageColorFromLayout();
-    compiled = T.compile(activeTheme, pageColor);
+    compiled = T.compile(activeTheme, pageColor, { contrast: contrastBoost });
     let css = "";
     for (const rules of lists) css += processRules(rules);
     addStyle("recolor", css);
@@ -324,9 +326,7 @@
 
     const dim = document.createElement("div");
     dim.className = "kero-dim";
-    dim.style.background = light
-      ? `rgba(242, 244, 245, ${Math.max(0.6, bg.dim)})` // light page: wash the background so dark text stays readable
-      : `rgba(0, 0, 0, ${bg.dim})`;
+    dim.style.background = dimColor(light, bg.dim);
     layer.appendChild(dim);
 
     (document.body || document.documentElement).prepend(layer);
@@ -335,6 +335,20 @@
       field = KeroseneField.create(fill, { fontSize: 12, color: settings.fieldColor, background: "#050505" });
     }
     return true;
+  }
+
+  // Light pages get a light wash instead of a black dim so dark text stays
+  // readable; the dim slider maps into 85-95% there.
+  function dimColor(light, dim) {
+    if (!light) return `rgba(0, 0, 0, ${dim})`;
+    const c = (activeTheme && T.parseColor(activeTheme.palette.page)) || { r: 242, g: 244, b: 245 };
+    return `rgba(${c.r}, ${c.g}, ${c.b}, ${(0.85 + (dim / 0.9) * 0.1).toFixed(3)})`;
+  }
+
+  // Octane's own light/dark switch can flip the page under Original.
+  function refreshDim() {
+    const dim = document.querySelector(`#${OWN}bg-layer > .kero-dim`);
+    if (dim) dim.style.background = dimColor(pageIsLight(), settings.bg.dim);
   }
 
   // Is the page (after theming) light? The active theme decides; for
@@ -349,7 +363,8 @@
   function findCovers() {
     const out = [];
     const vw = innerWidth, vh = innerHeight;
-    if (!document.body || !vw || !vh) return out; // hidden frame: no real viewport yet
+    // hidden frame (display:none): no real viewport or layout to judge by
+    if (!document.body || !vw || !vh || !document.documentElement.getBoundingClientRect().width) return null;
     const walk = (el, depth) => {
       for (const child of el.children) {
         if (child.id && child.id.startsWith(OWN)) continue;
@@ -366,9 +381,15 @@
   // Opaque full-screen wrappers would hide the custom background.
   function clearCovers() {
     if (!bgActive) return;
-    // re-evaluate from scratch so marks made at another size don't linger
-    for (const el of document.querySelectorAll("[data-kero-clear]")) el.removeAttribute("data-kero-clear");
-    for (const el of findCovers()) {
+    const covers = findCovers();
+    if (!covers) return;
+    // after a resize, re-evaluate from scratch so marks made at another size
+    // don't linger; otherwise only add (content that shrinks keeps its mark)
+    if (innerWidth !== coverWidth) {
+      for (const el of document.querySelectorAll("[data-kero-clear]")) el.removeAttribute("data-kero-clear");
+      coverWidth = innerWidth;
+    }
+    for (const el of covers) {
       const cs = getComputedStyle(el);
       if (cs.backgroundImage !== "none" || !/rgba\(.*,\s*0\)|transparent/.test(cs.backgroundColor)) {
         el.setAttribute("data-kero-clear", "");
@@ -468,6 +489,7 @@
     }
     restoreInline();
     bgActive = false;
+    coverWidth = 0;
     activeTheme = null;
     compiled = null;
     pageColor = null;
@@ -492,6 +514,9 @@
     setSiteMode(theme?.base || null);
     if (!settings.enabled) return;
 
+    const bg = settings.bg;
+    const bgWanted = bg && bg.mode !== "none" && !(bg.mode === "image" && !bg.image);
+    contrastBoost = Boolean(theme?.palette && bgWanted && T.rgbToHsl(T.parseColor(theme.palette.page)).l > 0.5);
     if (theme?.palette) {
       activeTheme = theme;
       applyFont(theme);
@@ -560,6 +585,14 @@
     document.addEventListener("load", (e) => {
       if (e.target?.tagName === "LINK") scheduleRebuild();
     }, true);
+    // Octane's light/dark switch (this tab, or another tab via storage)
+    const onSiteTheme = () => setTimeout(() => {
+      if (bgActive) refreshDim();
+      scheduleRebuild();
+      scheduleCovers();
+    }, 60);
+    window.addEventListener("octane-theme-change", onSiteTheme);
+    window.addEventListener("storage", (e) => { if (e.key === SITE_THEME) onSiteTheme(); });
     let lastUrl = location.href;
     setInterval(() => {
       if (activeTheme && signature() !== sheetSig) scheduleRebuild();

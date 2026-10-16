@@ -219,10 +219,14 @@
   ];
 
   // pageColor: the site's detected page background (before theming)
-  function compile(theme, pageColor) {
+  // opts.contrast: a light theme over a custom background, where the washed
+  // backdrop is greyer than the theme's page: darken muted text and accents.
+  function compile(theme, pageColor, opts = {}) {
     if (!theme.palette) return null;
     const pal = {};
     for (const [k, v] of Object.entries(theme.palette)) pal[k] = parseColor(v);
+    if (opts.contrast) pal.muted = mix(pal.text, pal.muted, 0.45);
+    const accentShift = opts.contrast ? -0.14 : 0;
     const stops = ELEVATION_STOPS.map(([e, key]) => [e, pal[key]]);
     const accent = rgbToHsl(pal.accent);
     let P = rgbToHsl(pageColor || { r: 35, g: 37, b: 39 }).l;
@@ -248,7 +252,7 @@
       },
       accent(l) {
         // keep hover/pressed shades relative to a mid-lightness source accent
-        const nl = Math.min(0.92, Math.max(0.08, accent.l + (l - 0.5) * 0.8));
+        const nl = Math.min(0.92, Math.max(0.08, accent.l + (l - 0.5) * 0.8 + accentShift));
         return hslToRgb(accent.h / 360, accent.s, nl);
       },
     };

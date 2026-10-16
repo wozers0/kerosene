@@ -175,7 +175,7 @@ body { min-height: 0 !important; max-height: none !important; height: 100vh; }
     html = html.replace('<link rel="stylesheet" href="popup.css">', f"<style>\n{css}\n</style>")
     # image links can't load inside the published demo (its CSP only allows data: images); uploads can
     html = html.replace("</body>", inline_script(
-        "(function () { var u = document.getElementById('bg-url'); if (u) u.closest('.inline').hidden = true;"
+        "(function () { var u = document.getElementById('bg-url'); if (u) u.closest('.inline').style.display = 'none';"
         " var l = document.querySelector('.field-label'); if (l) l.textContent = 'Your own image, GIF or video'; })();"
     ) + "</body>")
     popup_js = read("popup/popup.js")
@@ -199,6 +199,8 @@ body { min-height: 0 !important; max-height: none !important; height: 100vh; }
 SITE_CSS = r"""
 /* Stand-in for Octane's Roblox 2021/22 frontend: light-theme / dark-theme classes like the real one */
 * { box-sizing: border-box; }
+html { background-color: #f2f4f5; }
+html.octane-dark { background-color: #232527; }
 body { margin: 0; font-family: "HCo Gotham SSm", "Montserrat", "Helvetica Neue", Helvetica, Arial, sans-serif; font-size: 14px; }
 body.light-theme { background-color: #f2f4f5; color: #393b3d; }
 body.dark-theme { background-color: #232527; color: #ffffff; }
@@ -287,6 +289,7 @@ h1, h2, h3 { margin: 0; }
 .trade-buttons { display: flex; flex-wrap: wrap; gap: 10px; }
 
 .trade-request-window-offers { display: flex; flex-direction: column; gap: 14px; }
+#their-offer { order: -1; } /* DOM order stays mine-then-theirs, as on Octane */
 .trade-request-window-offer { padding: 14px; border-radius: 8px; display: flex; flex-direction: column; gap: 10px; }
 .light-theme .trade-request-window-offer { background-color: #ffffff; box-shadow: 0 1px 4px rgba(25, 25, 25, 0.08); }
 .dark-theme .trade-request-window-offer { background-color: #393b3d; }
@@ -470,8 +473,23 @@ SITE_PAGE_SCRIPT = r"""
   });
 
   var NAV = { home: '/home', trades: '/trades', newtrade: '/trades' };
-  document.querySelectorAll('.left-col-list a.text-nav').forEach(function (a) {
-    a.classList.toggle('active', a.getAttribute('href') === NAV[page]);
+  function updateNav() {
+    document.querySelectorAll('.left-col-list a.text-nav').forEach(function (a) {
+      a.classList.toggle('active', a.getAttribute('href') === NAV[page]);
+    });
+  }
+  updateNav();
+
+  // client-side navigation from the demo shell
+  window.addEventListener('message', function (e) {
+    var d = e.data;
+    if (!d || d.kero !== 1 || d.type !== 'page') return;
+    page = d.page;
+    I.itemId = d.itemId;
+    window.__keroPath = d.path || '';
+    render();
+    updateNav();
+    window.scrollTo(0, 0);
   });
 
   if (window.ext) {
