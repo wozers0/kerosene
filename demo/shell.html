@@ -1,0 +1,280 @@
+<title>Kerosene Demo</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+  /* Layout: a quiet OLED stage holding two live panels, the toolbar popup
+     and the Octane site it changes; one panel at a time on phones. */
+  :root {
+    --ink: #07080a;          /* page */
+    --panel: #0f1114;        /* panel chrome */
+    --line: #1f232a;         /* hairlines */
+    --text: #e7e9ec;
+    --muted: #8a919c;
+    --accent: #4fa3e0;       /* Kerosene's default glow */
+    --win: #22c55e;
+    --font-ui: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--ink); color: var(--text); }
+  body {
+    margin: 0;
+    font: 15px/1.5 var(--font-ui);
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 18px 40px;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
+
+  /* ---------- header ---------- */
+  .top { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+  .mark { display: flex; align-items: center; gap: 10px; }
+  .flame {
+    width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center;
+    color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent);
+    box-shadow: 0 0 22px color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+  .wordmark { font: 700 21px/1 var(--font-mono); letter-spacing: 0.4px; color: var(--accent); }
+  .wordmark .cursor { animation: blink 1s steps(1) infinite; }
+  .pill {
+    font: 500 11px/1 var(--font-mono); letter-spacing: 0.6px; text-transform: uppercase;
+    color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 5px 9px;
+  }
+  .lede { margin: 0; color: var(--muted); max-width: 62ch; flex-basis: 100%; }
+  .lede b { color: var(--text); font-weight: 600; }
+
+  /* ---------- phone switcher ---------- */
+  .seg {
+    display: none; position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20;
+    grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border-radius: 12px;
+    background: var(--panel); border: 1px solid var(--line);
+  }
+  .seg button {
+    font: 600 14px/1 var(--font-ui); color: var(--muted); background: transparent;
+    border: 0; border-radius: 9px; padding: 11px 8px; cursor: pointer;
+  }
+  .seg button[aria-selected="true"] { color: var(--ink); background: var(--accent); }
+  .seg button:focus-visible, .tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* ---------- stage ---------- */
+  .stage { display: grid; grid-template-columns: 380px minmax(0, 1fr); gap: 18px; align-items: start; }
+  .panel { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .label { font: 500 11px/1 var(--font-mono); letter-spacing: 0.8px; text-transform: uppercase; color: var(--muted); }
+  .frame {
+    width: 100%; border: 1px solid var(--line); border-radius: 14px; background: #000; display: block;
+  }
+  #popup-frame { height: 660px; }
+  .browser { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--panel); }
+  .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 9px 10px; border-bottom: 1px solid var(--line); }
+  .url {
+    flex: 1 1 200px; min-width: 0; display: flex; align-items: center; gap: 7px;
+    font: 500 12.5px/1 var(--font-mono); color: var(--muted);
+    background: var(--ink); border: 1px solid var(--line); border-radius: 999px; padding: 8px 12px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .url b { color: var(--text); font-weight: 500; }
+  .tabs { display: flex; gap: 4px; overflow-x: auto; }
+  .tabs button {
+    font: 600 12.5px/1 var(--font-ui); color: var(--muted); background: transparent; white-space: nowrap;
+    border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; cursor: pointer;
+  }
+  .tabs button[aria-current="page"] { color: var(--text); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+  #site-frame { height: 700px; border: 0; border-radius: 0; }
+
+  /* ---------- tips ---------- */
+  .tips { border-top: 1px solid var(--line); padding-top: 16px; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px 24px; }
+  .tips h2 { grid-column: 1 / -1; margin: 0; font: 700 13px/1 var(--font-mono); letter-spacing: 0.6px; text-transform: uppercase; color: var(--muted); }
+  .tip { display: flex; gap: 10px; color: var(--muted); font-size: 14px; }
+  .tip b { color: var(--text); font-weight: 600; }
+  .tip .k { flex-shrink: 0; width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; font: 700 11px/1 var(--font-mono); color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); }
+  .foot { color: var(--muted); font-size: 13px; }
+  .foot a { color: var(--accent); }
+
+  /* ---------- toasts ---------- */
+  .toasts {
+    position: fixed; z-index: 30; left: 0; right: 0; bottom: 0; pointer-events: none;
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+    padding: 0 max(16px, env(safe-area-inset-right, 0px)) calc(16px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+  }
+  .toast {
+    pointer-events: auto; max-width: 420px; width: 100%; display: flex; gap: 10px; align-items: flex-start;
+    background: #15181d; border: 1px solid var(--line); border-radius: 12px; padding: 11px 13px;
+    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.55); animation: rise 0.22s ease-out;
+  }
+  .toast .ico { color: var(--accent); flex-shrink: 0; margin-top: 2px; }
+  .toast strong { display: block; font-size: 14px; }
+  .toast span { color: var(--muted); font-size: 13px; }
+
+  @keyframes blink { 50% { opacity: 0; } }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } }
+  @media (prefers-reduced-motion: reduce) { .wordmark .cursor, .toast { animation: none; } }
+
+  @media (max-width: 899px) {
+    .seg { display: grid; }
+    .stage { grid-template-columns: minmax(0, 1fr); }
+    .stage .panel[hidden-phone] { display: none; }
+    #popup-frame { height: min(680px, calc(100vh - 150px)); min-height: 520px; max-width: 420px; margin: 0 auto; }
+    #site-frame { height: min(720px, calc(100vh - 210px)); min-height: 480px; }
+  }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="mark">
+      <div class="flame" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M12 2c.6 3.2-1.1 4.9-2.6 6.6C7.9 10.3 6.5 12 6.5 14.6 6.5 18.4 9 21 12 21s5.5-2.6 5.5-6.2c0-2.3-1-4-2.2-5.4-.3 1.6-1.1 2.7-2.3 3.2.5-2.9-.1-6.6-1-10.6Z"/></svg>
+      </div>
+      <div class="wordmark">kerosene<span class="cursor">_</span></div>
+    </div>
+    <span class="pill">demo · sample data</span>
+    <p class="lede">The real extension code, running here on <b>sample Octane data</b>. Change something in the popup and watch the Octane page follow.</p>
+  </header>
+
+  <nav class="seg" role="tablist" aria-label="Demo panels">
+    <button id="seg-popup" role="tab" aria-selected="true" aria-controls="panel-popup">Extension</button>
+    <button id="seg-site" role="tab" aria-selected="false" aria-controls="panel-site">On Octane</button>
+  </nav>
+
+  <main class="stage">
+    <section class="panel" id="panel-popup" aria-label="Kerosene popup">
+      <div class="label">Toolbar popup</div>
+      <iframe id="popup-frame" class="frame" title="Kerosene popup"></iframe>
+    </section>
+    <section class="panel" id="panel-site" aria-label="Octane with Kerosene" hidden-phone>
+      <div class="label">octane.wtf with Kerosene</div>
+      <div class="browser">
+        <div class="bar">
+          <div class="url" id="url"><svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M5 7V5a3 3 0 0 1 6 0v2h1v7H4V7h1Zm1.5 0h3V5a1.5 1.5 0 0 0-3 0v2Z"/></svg><span><b>octane.wtf</b><span id="url-path">/home</span></span></div>
+          <div class="tabs" id="tabs">
+            <button data-go="/home">Home</button>
+            <button data-go="/trades">Trades</button>
+            <button data-go="/users/1311/trade">New trade</button>
+            <button data-go="item">Item page</button>
+          </div>
+        </div>
+        <iframe id="site-frame" class="frame" title="Octane page"></iframe>
+      </div>
+    </section>
+  </main>
+
+  <section class="tips" aria-label="Things to try">
+    <h2>Try this</h2>
+    <div class="tip"><span class="k">1</span><div><b>Themes:</b> tap Classic, Dark or Modern in the popup, then open the Octane panel.</div></div>
+    <div class="tip"><span class="k">2</span><div><b>Backgrounds:</b> pick <b>Field</b>, then drag your finger across the background.</div></div>
+    <div class="tip"><span class="k">3</span><div><b>Trades:</b> open Trades for the WIN / LOSS banner, or New trade and tap items to change the deal.</div></div>
+    <div class="tip"><span class="k">4</span><div><b>Values:</b> search an item in Item values, or build a deal in Trade calculator.</div></div>
+    <div class="tip"><span class="k">5</span><div><b>Friends:</b> tap Refresh to see who's online or playing, with Join buttons.</div></div>
+    <p class="foot">Names, values and friends here are sample data. The installed extension reads your real Octane account and live values from Octomons. Source: <a href="https://github.com/wozers0/kerosene" target="_blank" rel="noopener">github.com/wozers0/kerosene</a></p>
+  </section>
+</div>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<script>
+(() => {
+  const BUNDLE = /*__KERO_BUNDLE__*/null;
+  const $ = (id) => document.getElementById(id);
+  const popupFrame = $("popup-frame");
+  const siteFrame = $("site-frame");
+  const master = structuredClone(BUNDLE.storage); // shared extension storage
+  const SCRIPT_OPEN = "<scr" + "ipt>", SCRIPT_CLOSE = "</scr" + "ipt>";
+  const safe = (v) => JSON.stringify(v).replace(/</g, "\\u003c");
+
+  // Octane remembers light/dark in localStorage; the demo starts in dark mode.
+  try { if (!localStorage.getItem("rbx_theme_v1")) localStorage.setItem("rbx_theme_v1", "dark"); } catch (e) { /* storage blocked */ }
+
+  const topItem = Object.entries(BUNDLE.values)[0]?.[0];
+  let current = { page: "home", itemId: null, path: "/home" };
+
+  function initTag(extra) {
+    return SCRIPT_OPEN + "window.__keroInit=" + safe({ storage: master, ...extra }) +
+      ";window.__keroTop=true;window.__keroDemo=true;window.__keroPath=" + safe(extra.path || "") + ";" + SCRIPT_CLOSE;
+  }
+
+  function loadPopup() {
+    popupFrame.srcdoc = BUNDLE.popup.replace("<!--KERO_INIT-->", initTag({ role: "popup" }));
+  }
+
+  function loadSite(page, itemId, path) {
+    current = { page, itemId, path };
+    siteFrame.srcdoc = BUNDLE.site.replace("<!--KERO_INIT-->", initTag({ role: "site", page, itemId, path }));
+    $("url-path").textContent = path;
+    for (const b of document.querySelectorAll("#tabs button")) {
+      const go = b.dataset.go;
+      const on = go === "item" ? page === "item" : go === path || (go === "/users/1311/trade" && page === "newtrade");
+      if (on) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
+    }
+  }
+
+  function navigate(url, fromPopup) {
+    let u;
+    try { u = new URL(url, "https://octane.wtf/"); } catch (e) { return; }
+    const p = u.pathname;
+    let m;
+    if (p === "/" || p === "/home" || /^\/users\/\d+\/limiteds/.test(p)) loadSite("home", null, "/home");
+    else if (p === "/trades") loadSite("trades", null, "/trades");
+    else if (/^\/users\/\d+\/trade$/.test(p)) loadSite("newtrade", null, p);
+    else if ((m = p.match(/^\/catalog\/(\d+)/)) && BUNDLE.values[m[1]]) loadSite("item", Number(m[1]), p);
+    else {
+      const what = /^\/games\/\d+/.test(p) ? "the game page" : /\/profile$/.test(p) ? "their profile" : "this page";
+      toast("Not in the demo", `On octane.wtf this opens ${what} (${p}).`);
+      return;
+    }
+    if (fromPopup) showPanel("site");
+  }
+
+  // ---------- messages from the frames ----------
+  window.addEventListener("message", (e) => {
+    const d = e.data;
+    if (!d || d.kero !== 1) return;
+    const from = e.source === popupFrame.contentWindow ? "popup" : e.source === siteFrame.contentWindow ? "site" : null;
+    if (!from) return;
+    if (d.type === "storage") {
+      Object.assign(master, d.patch);
+      const other = from === "popup" ? siteFrame : popupFrame;
+      other.contentWindow?.postMessage({ kero: 1, type: "storage", patch: d.patch }, "*");
+      if (d.patch.fieldColor) setAccent(d.patch.fieldColor);
+    } else if (d.type === "navigate") {
+      navigate(d.url, from === "popup");
+    } else if (d.type === "toast") {
+      toast(d.title, d.message);
+    }
+  });
+
+  // ---------- chrome ----------
+  const ACCENTS = { blue: "#4fa3e0", orange: "#d97757", purple: "#8b6cf0", green: "#6ec878", white: "#ebebeb" };
+  function setAccent(name) { document.documentElement.style.setProperty("--accent", ACCENTS[name] || ACCENTS.blue); }
+
+  function toast(title, message) {
+    const el = document.createElement("div");
+    el.className = "toast";
+    el.innerHTML = '<svg class="ico" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 2c.6 3.2-1.1 4.9-2.6 6.6C7.9 10.3 6.5 12 6.5 14.6 6.5 18.4 9 21 12 21s5.5-2.6 5.5-6.2c0-2.3-1-4-2.2-5.4-.3 1.6-1.1 2.7-2.3 3.2.5-2.9-.1-6.6-1-10.6Z"/></svg><div><strong></strong><span></span></div>';
+    el.querySelector("strong").textContent = title;
+    el.querySelector("span").textContent = message || "";
+    $("toasts").append(el);
+    setTimeout(() => el.remove(), 4200);
+  }
+
+  const phone = window.matchMedia("(max-width: 899px)");
+  function showPanel(which) {
+    const site = which === "site";
+    $("seg-popup").setAttribute("aria-selected", String(!site));
+    $("seg-site").setAttribute("aria-selected", String(site));
+    if (site) { $("panel-popup").setAttribute("hidden-phone", ""); $("panel-site").removeAttribute("hidden-phone"); }
+    else { $("panel-site").setAttribute("hidden-phone", ""); $("panel-popup").removeAttribute("hidden-phone"); }
+    if (phone.matches) window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+  $("seg-popup").addEventListener("click", () => showPanel("popup"));
+  $("seg-site").addEventListener("click", () => showPanel("site"));
+  for (const b of document.querySelectorAll("#tabs button")) {
+    b.addEventListener("click", () => navigate(b.dataset.go === "item" ? `/catalog/${current.itemId || topItem}/item` : b.dataset.go));
+  }
+
+  setAccent(master.fieldColor);
+  loadPopup();
+  loadSite("home", null, "/home");
+})();
+</script>
