@@ -1,11 +1,11 @@
 {
-  "version": "0.4.2",
-  "notes": "Show what's new after an update (v0.4.2)",
+  "version": "0.4.3",
+  "notes": "Backgrounds show through the whole page under every theme (v0.4.3)",
   "released": "2026-10-16",
-  "firefox": "https://github.com/wozers0/kerosene/releases/download/v0.4.2/kerosene-firefox.xpi",
-  "chrome": "https://github.com/wozers0/kerosene/releases/download/v0.4.2/kerosene-chrome.zip",
-  "page": "https://github.com/wozers0/kerosene/releases/tag/v0.4.2",
+  "firefox": "https://github.com/wozers0/kerosene/releases/download/v0.4.3/kerosene-firefox.xpi",
+  "chrome": "https://github.com/wozers0/kerosene/releases/download/v0.4.3/kerosene-chrome.zip",
+  "page": "https://github.com/wozers0/kerosene/releases/tag/v0.4.3",
   "firefox_xpi": "https://raw.githubusercontent.com/wozers0/kerosene/main/dist/kerosene-firefox.xpi",
-  "firefox_sha256": "65d906fde390009f71feda3d8141db593db2dc52d0d908c296d503e916351ca1",
-  "firefox_size": 101334
+  "firefox_sha256": "446a7206e5917dbb644485a094f1153202db92c6547a28ed99d27592793f40fb",
+  "firefox_size": 101551
 }
