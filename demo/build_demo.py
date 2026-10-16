@@ -173,6 +173,11 @@ body { min-height: 0 !important; max-height: none !important; height: 100vh; }
 .shell { min-height: 100vh; }
 """
     html = html.replace('<link rel="stylesheet" href="popup.css">', f"<style>\n{css}\n</style>")
+    # image links can't load inside the published demo (its CSP only allows data: images); uploads can
+    html = html.replace("</body>", inline_script(
+        "(function () { var u = document.getElementById('bg-url'); if (u) u.closest('.inline').hidden = true;"
+        " var l = document.querySelector('.field-label'); if (l) l.textContent = 'Your own image, GIF or video'; })();"
+    ) + "</body>")
     popup_js = read("popup/popup.js")
     old = "const IS_FIREFOX = /firefox/i.test(navigator.userAgent);"
     assert old in popup_js
@@ -201,7 +206,8 @@ a { text-decoration: none; color: inherit; }
 h1, h2, h3 { margin: 0; }
 .icon-robux { font-size: 0.85em; font-weight: 700; opacity: 0.8; margin-right: 2px; }
 
-#header.rbx-header { position: sticky; top: 0; z-index: 5; height: 46px; display: flex; align-items: center; gap: 20px; padding: 0 14px; }
+#navigation-container { position: sticky; top: 0; z-index: 5; }
+#header.rbx-header { position: relative; height: 46px; display: flex; align-items: center; gap: 20px; padding: 0 14px; }
 .light-theme .rbx-header { background-color: #ffffff; box-shadow: 0 1px 0 #e3e3e3; }
 .dark-theme .rbx-header { background-color: #191b1d; box-shadow: 0 1px 0 #111213; }
 .navbar-brand { font-weight: 800; font-size: 19px; letter-spacing: 1.5px; }
@@ -311,7 +317,7 @@ h1, h2, h3 { margin: 0; }
   #header.rbx-header { gap: 14px; }
   .content { margin-left: 0; padding: 18px 16px 32px; }
   .trades, #item-container { grid-template-columns: 1fr; }
-  .slots { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .trade-inventory-panel .item-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 }
 """
 
@@ -413,16 +419,16 @@ SITE_PAGE_SCRIPT = r"""
     var blanks = function (n) { var s = ''; for (var i = 0; i < n; i++) s += '<div class="trade-request-item blank-item"></div>'; return s; };
     var offerHtml = function (label, ids, removable, robux, id) {
       return '<div class="trade-request-window-offer" id="' + id + '"><h3>' + label + '</h3><div class="slots">' + ids.map(function (i) { return slot(i, removable); }).join('') + blanks(4 - ids.length) + '</div>' +
-        '<div class="input-group robux-input-group"><input class="form-control input-field" name="robux" type="text" inputmode="numeric" placeholder="+ Robux amount" value="' + (robux || '') + '"></div></div>';
+        '<div class="input-group robux-input-group"><input class="form-control input-field" name="robux" type="text" inputmode="numeric" placeholder="+ Robux amount" value="' + esc(robux || '') + '"></div></div>';
     };
     var inv = (D.inventory || []).map(function (u) {
       var inOffer = offer.give.indexOf(u.assetId) >= 0;
       return '<li>' + itemCard(item(u.assetId), ' data-add="' + u.assetId + '"', inOffer ? 'in-offer' : '') + '</li>';
     }).join('');
-    return '<div class="section"><h2>Trade with <b>' + esc(t.user) + '</b></h2><p class="text-secondary" style="margin:6px 0 0">Tap your items to add them to the offer, or type Robux.</p></div>' +
-      '<div class="trade-inventory-panel section"><h3 style="margin-bottom:10px">Your inventory</h3><ul class="item-cards">' + inv + '</ul></div>' +
-      '<div class="trade-request-window-offers">' + offerHtml('Your Offer', offer.give, true, window.__giveRobux, 'my-offer') + offerHtml('Their Offer', t.get, false, '', 'their-offer') +
-      '<button class="btn-cta-md">Make Offer</button></div>';
+    return '<div class="section"><h2>Trade with <b>' + esc(t.user) + '</b></h2><p class="text-secondary" style="margin:6px 0 0">Tap items in your inventory (below) to add them, × to remove, or type Robux.</p></div>' +
+      '<div class="trade-request-window-offers">' + offerHtml('Your Offer', offer.give, true, window.__giveRobux, 'my-offer') + offerHtml('Their Offer', t.get, false, window.__getRobux, 'their-offer') +
+      '<button class="btn-cta-md">Make Offer</button></div>' +
+      '<div class="trade-inventory-panel section"><h3 style="margin-bottom:10px">Your inventory</h3><ul class="item-cards">' + inv + '</ul></div>';
   }
 
   function itemPage() {
@@ -456,11 +462,28 @@ SITE_PAGE_SCRIPT = r"""
       keepRobux(); render(); return;
     }
     var a = e.target.closest('a[href]');
-    if (a) { e.preventDefault(); parent.postMessage({ kero: 1, type: 'navigate', url: new URL(a.getAttribute('href'), 'https://octane.wtf/').href }, '*'); }
+    if (!a) return;
+    var url = new URL(a.getAttribute('href'), 'https://octane.wtf/');
+    if (url.hostname !== 'octane.wtf') return; // e.g. "View on Octomons" opens in a new tab
+    e.preventDefault();
+    parent.postMessage({ kero: 1, type: 'navigate', url: url.href }, '*');
   });
+
+  var NAV = { home: '/home', trades: '/trades', newtrade: '/trades' };
+  document.querySelectorAll('.left-col-list a.text-nav').forEach(function (a) {
+    a.classList.toggle('active', a.getAttribute('href') === NAV[page]);
+  });
+
+  if (window.ext) {
+    ext.storage.onChanged.addListener(function (c) {
+      if (c.friendStatus && page === 'home') { I.storage.friendStatus = c.friendStatus.newValue; render(); }
+    });
+  }
   function keepRobux() {
-    var input = document.querySelector('#my-offer input[name="robux"]');
-    if (input) window.__giveRobux = input.value;
+    var mine = document.querySelector('#my-offer input[name="robux"]');
+    var theirs = document.querySelector('#their-offer input[name="robux"]');
+    if (mine) window.__giveRobux = mine.value;
+    if (theirs) window.__getRobux = theirs.value;
   }
 })();
 """
@@ -468,8 +491,8 @@ SITE_PAGE_SCRIPT = r"""
 
 def site_document(data_json, mock, scripts):
     nav = "".join(
-        f'<li><a class="text-nav{" active" if i == 0 else ""}" href="{href}">{label}</a></li>'
-        for i, (label, href) in enumerate([
+        f'<li><a class="text-nav" href="{href}">{label}</a></li>'
+        for label, href in ([
             ("Home", "/home"), ("Profile", "/users/156/profile"), ("Friends", "/users/friends"),
             ("Avatar", "/my/avatar"), ("Inventory", "/users/156/limiteds"), ("Trade", "/trades"), ("Groups", "/groups"),
         ])
@@ -490,6 +513,7 @@ def site_document(data_json, mock, scripts):
 </div>
 <div id="navigation" class="rbx-left-col"><ul class="left-col-list"><li class="text-lead">builderman</li>{nav}</ul></div>
 </div>
+{inline_script("window.__octaneApplyTheme();")}
 <div id="main" class="content"></div>
 {inline_script(SITE_PAGE_SCRIPT)}
 </body></html>"""

@@ -52,6 +52,8 @@
     grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border-radius: 12px;
     background: var(--panel); border: 1px solid var(--line);
   }
+  /* paints the status-bar strip above the sticky switcher */
+  body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 21; background: var(--ink); }
   .seg button {
     font: 600 14px/1 var(--font-ui); color: var(--muted); background: transparent;
     border: 0; border-radius: 9px; padding: 11px 8px; cursor: pointer;
@@ -76,7 +78,7 @@
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .url b { color: var(--text); font-weight: 500; }
-  .tabs { display: flex; gap: 4px; overflow-x: auto; }
+  .tabs { display: flex; gap: 4px; overflow-x: auto; padding: 3px; margin: -3px; } /* room for focus rings */
   .tabs button {
     font: 600 12.5px/1 var(--font-ui); color: var(--muted); background: transparent; white-space: nowrap;
     border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; cursor: pointer;
@@ -100,7 +102,7 @@
     padding: 0 max(16px, env(safe-area-inset-right, 0px)) calc(16px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
   }
   .toast {
-    pointer-events: auto; max-width: 420px; width: 100%; display: flex; gap: 10px; align-items: flex-start;
+    pointer-events: none; /* nothing to press; taps go through to the popup */ max-width: 420px; width: 100%; display: flex; gap: 10px; align-items: flex-start;
     background: #15181d; border: 1px solid var(--line); border-radius: 12px; padding: 11px 13px;
     box-shadow: 0 14px 40px rgba(0, 0, 0, 0.55); animation: rise 0.22s ease-out;
   }
@@ -163,7 +165,7 @@
   <section class="tips" aria-label="Things to try">
     <h2>Try this</h2>
     <div class="tip"><span class="k">1</span><div><b>Themes:</b> tap Classic, Dark or Modern in the popup, then open the Octane panel.</div></div>
-    <div class="tip"><span class="k">2</span><div><b>Backgrounds:</b> pick <b>Field</b>, then drag your finger across the background.</div></div>
+    <div class="tip"><span class="k">2</span><div><b>Backgrounds:</b> pick <b>Field</b>, then tap or drag your finger across it.</div></div>
     <div class="tip"><span class="k">3</span><div><b>Trades:</b> open Trades for the WIN / LOSS banner, or New trade and tap items to change the deal.</div></div>
     <div class="tip"><span class="k">4</span><div><b>Values:</b> search an item in Item values, or build a deal in Trade calculator.</div></div>
     <div class="tip"><span class="k">5</span><div><b>Friends:</b> tap Refresh to see who's online or playing, with Join buttons.</div></div>
@@ -189,18 +191,31 @@
   const topItem = Object.entries(BUNDLE.values)[0]?.[0];
   let current = { page: "home", itemId: null, path: "/home" };
 
+  // A large uploaded background would make every frame's HTML megabytes long;
+  // leave it out of the inline state and post it after the frame loads.
+  const BIG = 200 * 1024;
+  function inlineState() {
+    if (!(master.bg?.image?.length > BIG)) return master;
+    return { ...master, bg: { ...master.bg, image: "", mode: "none" } };
+  }
+  function sendBigState(frame) {
+    if (master.bg?.image?.length > BIG) frame.contentWindow?.postMessage({ kero: 1, type: "storage", patch: { bg: master.bg } }, "*");
+  }
+  popupFrame.addEventListener("load", () => sendBigState(popupFrame));
+  siteFrame.addEventListener("load", () => sendBigState(siteFrame));
+
   function initTag(extra) {
-    return SCRIPT_OPEN + "window.__keroInit=" + safe({ storage: master, ...extra }) +
+    return SCRIPT_OPEN + "window.__keroInit=" + safe({ storage: inlineState(), ...extra }) +
       ";window.__keroTop=true;window.__keroDemo=true;window.__keroPath=" + safe(extra.path || "") + ";" + SCRIPT_CLOSE;
   }
 
   function loadPopup() {
-    popupFrame.srcdoc = BUNDLE.popup.replace("<!--KERO_INIT-->", initTag({ role: "popup" }));
+    popupFrame.srcdoc = BUNDLE.popup.replace("<!--KERO_INIT-->", () => initTag({ role: "popup" }));
   }
 
   function loadSite(page, itemId, path) {
     current = { page, itemId, path };
-    siteFrame.srcdoc = BUNDLE.site.replace("<!--KERO_INIT-->", initTag({ role: "site", page, itemId, path }));
+    siteFrame.srcdoc = BUNDLE.site.replace("<!--KERO_INIT-->", () => initTag({ role: "site", page, itemId, path }));
     $("url-path").textContent = path;
     for (const b of document.querySelectorAll("#tabs button")) {
       const go = b.dataset.go;
@@ -212,6 +227,7 @@
   function navigate(url, fromPopup) {
     let u;
     try { u = new URL(url, "https://octane.wtf/"); } catch (e) { return; }
+    if (u.hostname !== "octane.wtf") return;
     const p = u.pathname;
     let m;
     if (p === "/" || p === "/home" || /^\/users\/\d+\/limiteds/.test(p)) loadSite("home", null, "/home");
@@ -259,13 +275,14 @@
   }
 
   const phone = window.matchMedia("(max-width: 899px)");
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
   function showPanel(which) {
     const site = which === "site";
     $("seg-popup").setAttribute("aria-selected", String(!site));
     $("seg-site").setAttribute("aria-selected", String(site));
     if (site) { $("panel-popup").setAttribute("hidden-phone", ""); $("panel-site").removeAttribute("hidden-phone"); }
     else { $("panel-site").setAttribute("hidden-phone", ""); $("panel-popup").removeAttribute("hidden-phone"); }
-    if (phone.matches) window.scrollTo({ top: 0, behavior: "smooth" });
+    if (phone.matches) window.scrollTo({ top: 0, behavior: reduceMotion.matches ? "auto" : "smooth" });
   }
   $("seg-popup").addEventListener("click", () => showPanel("popup"));
   $("seg-site").addEventListener("click", () => showPanel("site"));

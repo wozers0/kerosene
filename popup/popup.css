@@ -95,7 +95,8 @@ h1 {
 .sections { display: flex; flex-direction: column; gap: 8px; flex: 1; }
 
 .drop { overflow: hidden; transition: border-color 0.2s; }
-.drop[open] { border-color: rgba(var(--accent), 0.35); }
+.drop[open] { border-color: rgba(var(--accent), 0.35); overflow: visible; } /* let suggestion lists spill out */
+.drop[open] > summary { border-radius: 10px 10px 0 0; }
 
 .drop summary {
   list-style: none;
@@ -106,6 +107,7 @@ h1 {
   padding: 10px 12px;
   font-weight: 600;
   user-select: none;
+  border-radius: 10px;
   transition: background 0.15s;
 }
 .drop summary::-webkit-details-marker { display: none; }
@@ -225,6 +227,7 @@ h1 {
   outline: none;
 }
 .input:focus { border-color: rgba(var(--accent), 0.6); }
+.drop-body > .input { flex: none; } /* full-width inputs in the column layout keep their height */
 
 .btn {
   height: 30px;
@@ -242,6 +245,7 @@ h1 {
   transition: background 0.15s;
 }
 .btn:hover { background: rgba(var(--accent), 0.3); }
+a.btn { white-space: nowrap; flex-shrink: 0; text-decoration: none; }
 .btn:focus-visible { outline: 1px solid rgb(var(--accent)); outline-offset: 1px; }
 .btn.ghost { border-color: var(--line); background: rgba(255, 255, 255, 0.03); font-weight: 400; }
 .btn.ghost:hover { background: rgba(255, 255, 255, 0.08); }
@@ -299,15 +303,17 @@ div.row { cursor: default; }
 .toggle:checked::after { transform: translateX(14px); }
 .toggle:focus-visible { outline: 1px solid rgb(var(--accent)); outline-offset: 2px; }
 
-.swatches { display: flex; gap: 6px; }
+.swatches { display: flex; gap: 12px; }
 .swatch {
   all: unset;
+  position: relative;
   width: 16px;
   height: 16px;
   border-radius: 50%;
   cursor: pointer;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.15);
 }
+.swatch::after { content: ""; position: absolute; inset: -6px; } /* 28px tap target */
 .swatch[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--bg), 0 0 0 3px currentColor; }
 .swatch:focus-visible { outline: 1px solid #fff; outline-offset: 2px; }
 

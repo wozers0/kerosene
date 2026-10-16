@@ -82,16 +82,23 @@
       return { items: clone(DATA.values || {}), updated: Date.now() - 2 * 60 * 1000 };
     }
     if (msg?.type === "refresh-friends") {
+      const s = await globalThis.KeroseneSettings.load();
       const prev = store.friendStatus || {};
       tick++;
-      const next = friendStatus();
-      for (const id of store.friends || []) {
+      const next = s.syncFriends ? friendStatus() : {};
+      for (const id of s.friends || []) {
         if (!next[id] && USERS[id]) next[id] = { id: Number(id), name: USERS[id].name, displayName: USERS[id].name, status: USERS[id].online ? "online" : "offline" };
       }
-      for (const f of Object.values(next)) {
-        const p = prev[f.id];
-        if (p && f.status === "ingame" && p.status !== "ingame") {
-          post({ type: "toast", title: `${f.displayName} is playing`, message: f.location });
+      // same alert rules as background.js
+      if (s.enabled) {
+        for (const f of Object.values(next)) {
+          const p = prev[f.id];
+          if (!p) continue;
+          if (s.notifyGames && f.status === "ingame" && (p.status !== "ingame" || p.placeId !== f.placeId)) {
+            post({ type: "toast", title: `${f.displayName} is playing`, message: f.location });
+          } else if (s.notifyOnline && p.status === "offline" && f.status !== "offline") {
+            post({ type: "toast", title: `${f.displayName} is online`, message: "Your Octane friend just came online." });
+          }
         }
       }
       await local.set({

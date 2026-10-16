@@ -253,10 +253,10 @@
   // ---------- fonts & extras ----------
   function applyFont(theme) {
     if (!settings.themeFonts || !theme.font) return;
-    let link = document.getElementById(OWN + "font");
+    let link = document.getElementById(OWN + "font-link");
     if (!link) {
       link = document.createElement("link");
-      link.id = OWN + "font";
+      link.id = OWN + "font-link";
       link.rel = "stylesheet";
       root().appendChild(link);
     }
@@ -277,6 +277,7 @@
     // Embedded Octane pages (trades, item, limiteds iframes) just go see-through
     // so the top page's background shows behind them.
     const embedded = window.top !== window;
+    const light = pageIsLight();
     bgActive = true;
     addStyle("bg-over", `
       html, body { background: transparent !important; }
@@ -291,6 +292,7 @@
       #${OWN}bg-layer > canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
       #${OWN}bg-layer > .kero-dim { position: absolute; inset: 0; }
       @keyframes kerosene-aurora { 0%, 100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
+      @media (prefers-reduced-motion: reduce) { #${OWN}bg-layer .kero-fill { animation: none !important; } }
     `);
 
     const layer = document.createElement("div");
@@ -322,7 +324,9 @@
 
     const dim = document.createElement("div");
     dim.className = "kero-dim";
-    dim.style.background = `rgba(0, 0, 0, ${bg.dim})`;
+    dim.style.background = light
+      ? `rgba(242, 244, 245, ${Math.max(0.6, bg.dim)})` // light page: wash the background so dark text stays readable
+      : `rgba(0, 0, 0, ${bg.dim})`;
     layer.appendChild(dim);
 
     (document.body || document.documentElement).prepend(layer);
@@ -333,12 +337,19 @@
     return true;
   }
 
+  // Is the page (after theming) light? The active theme decides; for
+  // Original, measure the site's own page colour.
+  function pageIsLight() {
+    const c = activeTheme ? T.parseColor(activeTheme.palette.page) : pageColorFromLayout();
+    return Boolean(c) && T.rgbToHsl(c).l > 0.5;
+  }
+
   // Elements that cover the whole viewport (Octane's .page, Roblox's
   // #container-main wrappers ...), down to a few levels deep.
   function findCovers() {
     const out = [];
-    if (!document.body) return out;
     const vw = innerWidth, vh = innerHeight;
+    if (!document.body || !vw || !vh) return out; // hidden frame: no real viewport yet
     const walk = (el, depth) => {
       for (const child of el.children) {
         if (child.id && child.id.startsWith(OWN)) continue;
@@ -355,6 +366,8 @@
   // Opaque full-screen wrappers would hide the custom background.
   function clearCovers() {
     if (!bgActive) return;
+    // re-evaluate from scratch so marks made at another size don't linger
+    for (const el of document.querySelectorAll("[data-kero-clear]")) el.removeAttribute("data-kero-clear");
     for (const el of findCovers()) {
       const cs = getComputedStyle(el);
       if (cs.backgroundImage !== "none" || !/rgba\(.*,\s*0\)|transparent/.test(cs.backgroundColor)) {

@@ -232,6 +232,13 @@
       mouse.x = p.x; mouse.y = p.y; mouse.target = 1;
     };
     const onLeave = (e) => { if (!e.relatedTarget) mouse.target = 0; };
+    // touch: pointermove stops once the browser starts scrolling, touchmove doesn't
+    const onTouch = (e) => {
+      const t = e.touches[0];
+      if (t) onMove({ clientX: t.clientX, clientY: t.clientY });
+    };
+    const onRelease = (e) => { if (e.pointerType !== "mouse") mouse.target = 0; };
+    const onTouchEnd = () => { mouse.target = 0; };
     const onDown = (e) => {
       const p = local(e);
       ripples.push({ x: p.x, y: p.y, start: performance.now() });
@@ -242,6 +249,11 @@
       window.addEventListener("pointermove", onMove, { passive: true });
       window.addEventListener("pointerdown", onDown, { passive: true });
       document.addEventListener("mouseout", onLeave);
+      window.addEventListener("touchstart", onTouch, { passive: true });
+      window.addEventListener("touchmove", onTouch, { passive: true });
+      window.addEventListener("touchend", onTouchEnd, { passive: true });
+      window.addEventListener("touchcancel", onTouchEnd, { passive: true });
+      window.addEventListener("pointerup", onRelease, { passive: true });
     }
     const ro = new ResizeObserver(resize);
     ro.observe(canvas);
@@ -256,6 +268,11 @@
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerdown", onDown);
       document.removeEventListener("mouseout", onLeave);
+      window.removeEventListener("touchstart", onTouch);
+      window.removeEventListener("touchmove", onTouch);
+      window.removeEventListener("touchend", onTouchEnd);
+      window.removeEventListener("touchcancel", onTouchEnd);
+      window.removeEventListener("pointerup", onRelease);
     }
 
     return { setRunning, setColor, destroy };

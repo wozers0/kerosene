@@ -74,7 +74,7 @@ function renderStatus() {
 function renderThemes() {
   const grid = $("theme-grid");
   grid.replaceChildren();
-  for (const theme of Object.values(T.THEMES)) {
+  for (const theme of T.ORDER.map((id) => T.THEMES[id])) {
     const sw = theme.swatch;
     const topBar = el("div", { className: "mini-bar" });
     topBar.style.background = sw.bar;
@@ -457,7 +457,7 @@ function renderValuesNote() {
   const note = $("values-note");
   note.classList.toggle("err", Boolean(valuesInfo.error));
   note.textContent = valuesInfo.error && !n ? `Couldn't load Octomons (${valuesInfo.error})`
-    : n ? `${n} limiteds · Octomons · updated ${timeAgo(valuesInfo.updated)}` : "loading values…";
+    : n ? `${n} limiteds · updated ${timeAgo(valuesInfo.updated)}` : "loading values…";
   $("values-meta").textContent = n ? `${n} items` : "";
 }
 

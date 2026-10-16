@@ -327,5 +327,7 @@
     return "fg"; // color, fill, stroke, caret-color, text-decoration-color, ...
   }
 
-  globalThis.KeroseneThemes = { THEMES, BG_PRESETS, COLOR_RE, compile, rewriteValue, kindOf, parseColor, mapColor, rgbToHsl };
+  const ORDER = ["original", "2018", "2020", "2026"];
+
+  globalThis.KeroseneThemes = { THEMES, ORDER, BG_PRESETS, COLOR_RE, compile, rewriteValue, kindOf, parseColor, mapColor, rgbToHsl };
 })();
