@@ -6,13 +6,12 @@
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <canvas id="code-bg" aria-hidden="true"></canvas>
-  <div class="vignette" aria-hidden="true"></div>
+  <canvas id="field" aria-hidden="true"></canvas>
 
   <main class="shell">
     <header class="brand">
       <div class="logo" aria-hidden="true">
-        <svg viewBox="0 0 24 24" width="22" height="22">
+        <svg viewBox="0 0 24 24" width="20" height="20">
           <path fill="currentColor" d="M12 2c.6 3.2-1.1 4.9-2.6 6.6C7.9 10.3 6.5 12 6.5 14.6 6.5 18.4 9 21 12 21s5.5-2.6 5.5-6.2c0-2.3-1-4-2.2-5.4-.3 1.6-1.1 2.7-2.3 3.2.5-2.9-.1-6.6-1-10.6Z"/>
         </svg>
       </div>
@@ -20,52 +19,143 @@
         <h1>kerosene<span class="cursor">_</span></h1>
         <p class="sub">fuel for <b>octane</b></p>
       </div>
-      <span class="ver" id="version">v0.1.0</span>
+      <span class="pill" id="active-pill">original</span>
     </header>
 
-    <nav class="sections" id="sections">
-      <details class="drop" data-key="general" open>
-        <summary><span class="chev">›</span> General</summary>
+    <nav class="sections">
+      <!-- Themes -->
+      <details class="drop" data-key="themes">
+        <summary><span class="chev">›</span> Themes <span class="meta" id="theme-meta"></span></summary>
         <div class="drop-body">
-          <label class="row">
-            <span>
-              <span class="row-title">Enable Kerosene</span>
-              <span class="row-desc">Master switch for all features</span>
-            </span>
-            <input type="checkbox" class="toggle" data-setting="enabled" checked>
-          </label>
-          <label class="row">
-            <span>
-              <span class="row-title">Animated background</span>
-              <span class="row-desc">Scrolling code behind this menu</span>
-            </span>
-            <input type="checkbox" class="toggle" data-setting="animatedBg" checked>
+          <div class="theme-grid" id="theme-grid"></div>
+          <div class="notice" id="css-notice" hidden>
+            <span>Octane loads some styles from <b id="css-origins"></b>. Allow Kerosene to read them so themes recolour everything.</span>
+            <button class="btn small" id="css-allow">Allow</button>
+          </div>
+          <label class="row compact">
+            <span class="row-title">Use era fonts</span>
+            <input type="checkbox" class="toggle" data-setting="themeFonts">
           </label>
         </div>
       </details>
 
-      <details class="drop" data-key="features">
-        <summary><span class="chev">›</span> Features</summary>
+      <!-- Backgrounds -->
+      <details class="drop" data-key="backgrounds">
+        <summary><span class="chev">›</span> Backgrounds <span class="meta" id="bg-meta"></span></summary>
         <div class="drop-body">
-          <p class="empty">// features coming soon — tell me what to add</p>
+          <div class="bg-grid" id="bg-grid"></div>
+
+          <div class="field-label">Your own image, GIF or video</div>
+          <div class="inline">
+            <input type="url" id="bg-url" class="input" placeholder="https://… .png / .gif / .mp4">
+            <button class="btn" id="bg-url-apply">Use</button>
+          </div>
+          <div class="inline">
+            <label class="btn ghost wide" for="bg-file">Upload from computer…</label>
+            <input type="file" id="bg-file" accept="image/*,video/mp4,video/webm" hidden>
+          </div>
+          <p class="note" id="bg-note"></p>
+
+          <label class="slider">
+            <span>Dim <b id="dim-val"></b></span>
+            <input type="range" id="bg-dim" min="0" max="0.9" step="0.05">
+          </label>
+          <label class="slider">
+            <span>Blur <b id="blur-val"></b></span>
+            <input type="range" id="bg-blur" min="0" max="20" step="1">
+          </label>
+        </div>
+      </details>
+
+      <!-- Friends -->
+      <details class="drop" data-key="friends">
+        <summary><span class="chev">›</span> Friends <span class="meta" id="friends-meta"></span></summary>
+        <div class="drop-body">
+          <form class="inline" id="friend-form">
+            <input type="text" inputmode="numeric" id="friend-id" class="input" placeholder="Octane user ID">
+            <button class="btn" type="submit">Watch</button>
+          </form>
+          <ul class="friend-list" id="friend-list"></ul>
+          <div class="inline between">
+            <span class="note" id="friends-checked"></span>
+            <button class="btn ghost small" id="friends-refresh">Refresh</button>
+          </div>
+        </div>
+      </details>
+
+      <!-- Quick links -->
+      <details class="drop" data-key="links">
+        <summary><span class="chev">›</span> Quick links</summary>
+        <div class="drop-body">
+          <div class="link-grid" id="link-grid"></div>
+        </div>
+      </details>
+
+      <!-- Lookup -->
+      <details class="drop" data-key="lookup">
+        <summary><span class="chev">›</span> User lookup</summary>
+        <div class="drop-body">
+          <form class="inline" id="lookup-form">
+            <input type="text" inputmode="numeric" id="lookup-id" class="input" placeholder="User ID">
+            <button class="btn" type="submit">Find</button>
+          </form>
+          <div id="lookup-result"></div>
+        </div>
+      </details>
+
+      <!-- Settings -->
+      <details class="drop" data-key="settings">
+        <summary><span class="chev">›</span> Settings</summary>
+        <div class="drop-body">
+          <label class="row">
+            <span>
+              <span class="row-title">Enable Kerosene</span>
+              <span class="row-desc">Master switch for everything on octane.wtf</span>
+            </span>
+            <input type="checkbox" class="toggle" data-setting="enabled">
+          </label>
+          <label class="row">
+            <span>
+              <span class="row-title">Animated menu background</span>
+              <span class="row-desc">The character field behind this menu</span>
+            </span>
+            <input type="checkbox" class="toggle" data-setting="animatedBg">
+          </label>
+          <label class="row">
+            <span>
+              <span class="row-title">Friend online alerts</span>
+              <span class="row-desc">Notify when a watched friend comes online</span>
+            </span>
+            <input type="checkbox" class="toggle" data-setting="notifyOnline">
+          </label>
+          <div class="row">
+            <span>
+              <span class="row-title">Glow colour</span>
+              <span class="row-desc">Menu accent and character field</span>
+            </span>
+            <div class="swatches" id="color-swatches"></div>
+          </div>
         </div>
       </details>
 
       <details class="drop" data-key="about">
         <summary><span class="chev">›</span> About</summary>
         <div class="drop-body">
-          <p class="about">Kerosene is an unofficial companion extension for the Octane revival.</p>
+          <p class="about">Kerosene is an unofficial companion extension for the Octane revival. Not affiliated with Octane or Roblox.</p>
+          <p class="about"><span id="version"></span> · move your mouse over the background, click for a ripple.</p>
         </div>
       </details>
     </nav>
 
     <footer class="foot">
-      <span class="status"><span class="dot"></span> ready</span>
-      <span class="hint">octane // 2021–2022</span>
+      <span class="status"><span class="dot"></span> <span id="status-text">ready</span></span>
+      <span class="hint">octane.wtf</span>
     </footer>
   </main>
 
-  <script src="code-bg.js"></script>
+  <script src="../shared/settings.js"></script>
+  <script src="../shared/themes.js"></script>
+  <script src="../shared/char-field.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>
