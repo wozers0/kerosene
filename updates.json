@@ -3,8 +3,8 @@
     "kerosene@wozers0": {
       "updates": [
         {
-          "version": "0.3.3",
-          "update_link": "https://raw.githubusercontent.com/wozers0/kerosene/main/dist/kerosene-firefox.xpi"
+          "version": "0.4.0",
+          "update_link": "https://github.com/wozers0/kerosene/releases/download/v0.4.0/kerosene-firefox.xpi"
         }
       ]
     }
