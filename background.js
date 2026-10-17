@@ -121,57 +121,86 @@ async function getValues(force = false) {
 // Membership of the Supa Games group unlocks themes, backgrounds, hide ads,
 // price alerts and "can I afford it" alerts. Checked every 30 minutes, when
 // the signed-in user changes, and when the popup asks.
+async function runAccessCheck(force) {
+  const { viewer = null, groupAccess = null } = await ext.storage.local.get(["viewer", "groupAccess"]);
+  if (!viewer?.id) return groupAccess;
+  const fresh = groupAccess?.userId === viewer.id && Date.now() - groupAccess.checkedAt < S.ACCESS_TTL;
+  if (fresh && !force) return groupAccess;
+  try {
+    const next = { userId: viewer.id, member: await S.fetchGroupMember(viewer.id), checkedAt: Date.now() };
+    // the account may have changed while we asked: then this answer is stale
+    const { viewer: now = null } = await ext.storage.local.get("viewer");
+    if (now?.id !== viewer.id) return runAccessCheck(true);
+    await ext.storage.local.set({ groupAccess: next });
+    return next;
+  } catch {
+    return groupAccess; // offline / rate limited: keep what we knew
+  }
+}
 let accessCheck = null;
 function checkAccess(force = false) {
-  accessCheck ??= (async () => {
-    const { viewer = null, groupAccess = null } = await ext.storage.local.get(["viewer", "groupAccess"]);
-    if (!viewer?.id) return groupAccess;
-    const fresh = groupAccess?.userId === viewer.id && Date.now() - groupAccess.checkedAt < S.ACCESS_TTL;
-    if (fresh && !force) return groupAccess;
-    try {
-      const next = { userId: viewer.id, member: await S.fetchGroupMember(viewer.id), checkedAt: Date.now() };
-      if (next.member !== groupAccess?.member || next.userId !== groupAccess?.userId || Date.now() - (groupAccess?.checkedAt || 0) > 5 * 60 * 1000) {
-        await ext.storage.local.set({ groupAccess: next });
-      }
-      return next;
-    } catch {
-      return groupAccess; // offline / rate limited: keep what we knew
-    }
-  })().finally(() => { accessCheck = null; });
-  return accessCheck;
+  // a forced check (account switch, "I've joined") never reuses an answer
+  // that was already on its way
+  const run = () => runAccessCheck(force);
+  const next = force && accessCheck ? accessCheck.then(run, run) : accessCheck || run();
+  accessCheck = next.finally(() => { if (accessCheck === next) accessCheck = null; });
+  return next;
 }
 
+// Timers and caches live in storage: Chrome's service worker and Firefox's
+// event page are unloaded between alarms, which would reset anything kept
+// in memory and make every check run every minute.
+async function timers() {
+  const { alertTimers = {} } = await ext.storage.local.get("alertTimers");
+  return alertTimers;
+}
+async function setTimer(patch) {
+  const t = await timers();
+  await ext.storage.local.set({ alertTimers: { ...t, ...patch } });
+}
+const throttled403 = (err) => err?.status === 403 || err?.status === 429;
+const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+
 // ---------- trade alerts (everyone) ----------
-const TRADE_SEEN_MAX = 300;
+// tradeSeen: { [userId]: { maxId, ids } } — only trades newer than the newest
+// one already seen alert, so trades sliding into the first page don't.
 async function pollTrades(settings, viewer) {
-  if (!settings.enabled || !settings.notifyTrades || !viewer?.id) return;
+  const { tradeSeen = {} } = await ext.storage.local.get("tradeSeen");
+  if (!settings.enabled || !settings.notifyTrades || !viewer?.id) {
+    // switched off: forget the baseline so switching back on starts fresh
+    if (Object.keys(tradeSeen).length) await ext.storage.local.remove("tradeSeen");
+    return;
+  }
   let list;
   try {
     list = await S.fetchTrades("Inbound", 25);
   } catch {
     return; // signed out, or Octane is busy
   }
-  const { tradeSeen = null } = await ext.storage.local.get("tradeSeen");
-  const ids = list.map((t) => t.id);
-  // first look (or another account): remember what's there, no alerts
-  if (!tradeSeen || tradeSeen.userId !== viewer.id) {
-    await ext.storage.local.set({ tradeSeen: { userId: viewer.id, ids } });
+  const mine = tradeSeen[viewer.id];
+  const maxOf = (ts) => ts.reduce((m, t) => Math.max(m, Number(t.id) || 0), 0);
+  if (!mine) {
+    // first look for this account: remember what's there, no alerts
+    await ext.storage.local.set({ tradeSeen: { ...trimSeen(tradeSeen), [viewer.id]: { maxId: maxOf(list), ids: list.map((t) => t.id) } } });
     return;
   }
-  const seen = new Set(tradeSeen.ids);
-  const fresh = list.filter((t) => !seen.has(t.id) && t.isActive !== false);
+  const seen = new Set(mine.ids);
+  const fresh = list.filter((t) => Number(t.id) > mine.maxId && !seen.has(t.id) && t.isActive !== false);
   if (!fresh.length) return;
-  await ext.storage.local.set({ tradeSeen: { userId: viewer.id, ids: [...ids, ...tradeSeen.ids.filter((id) => !ids.includes(id))].slice(0, TRADE_SEEN_MAX) } });
+  await ext.storage.local.set({ tradeSeen: { ...tradeSeen, [viewer.id]: {
+    maxId: Math.max(mine.maxId, maxOf(fresh)),
+    ids: [...new Set([...list.map((t) => t.id), ...mine.ids])].slice(0, 300),
+  } } });
   const { items: values = {} } = await getValues();
   for (const t of fresh.slice(0, 5)) {
     const from = t.user?.displayName || t.user?.name || "someone";
     try {
       const d = await S.fetchTrade(t.id);
       const offers = d.offers || [];
-      const mine = offers.find((o) => o.user?.id === viewer.id) || offers[0];
-      const theirs = offers.find((o) => o !== mine) || offers[1];
+      const myOffer = offers.find((o) => o.user?.id === viewer.id) || offers[0];
+      const theirs = offers.find((o) => o !== myOffer) || offers[1];
       const side = (o) => V.offerTotals((o?.userAssets || []).map((a) => ({ assetId: a.assetId, rap: a.recentAveragePrice || 0 })), V.afterFee(o?.robux || 0), values);
-      const give = side(mine), get = side(theirs);
+      const give = side(myOffer), get = side(theirs);
       const v = V.verdict(give, get);
       const word = { win: "WIN", loss: "LOSS", fair: "FAIR" }[v.kind] || "New trade";
       const sign = v.diff > 0 ? "+" : v.diff < 0 ? "−" : "±";
@@ -181,55 +210,73 @@ async function pollTrades(settings, viewer) {
       notify(`trade-${t.id}`, `New trade from ${from}`, "Open your trades to see it.");
     }
   }
+  if (fresh.length > 5) notify("trade-more", `${fresh.length - 5} more new trades`, "Open your trades to see them all.");
 }
+// keep the per-account baselines to a few accounts
+const trimSeen = (seen) => Object.fromEntries(Object.entries(seen).slice(-4));
 
 // ---------- price-drop alerts (Supa Games) ----------
-let lastPriceCheck = 0;
+// The popup owns the list (priceAlerts); the background keeps what it saw
+// per item in priceAlertState: { [assetId]: { lowest, checkedAt, notified } }
+// and writes it right after each check, so a sleeping worker loses nothing.
 async function pollPriceAlerts(settings, viewer) {
   if (!settings.enabled || !settings.perks || !settings.priceAlerts.length) return;
-  if (Date.now() - lastPriceCheck < 2 * 60 * 1000) return;
-  lastPriceCheck = Date.now();
+  const t = await timers();
+  if (Date.now() - (t.priceAt || 0) < 2 * 60 * 1000 || Date.now() < (t.priceBackoffUntil || 0)) return;
+  await setTimer({ priceAt: Date.now() });
   const { items: values = {} } = await getValues();
-  const alerts = settings.priceAlerts.slice(0, 20).map((a) => ({ ...a }));
-  let changed = false;
-  for (const a of alerts) {
+  for (const a of settings.priceAlerts.slice(0, 20)) {
     let best;
     try {
       best = await S.fetchLowestResale(a.assetId, viewer?.id);
-    } catch {
+    } catch (err) {
+      if (throttled403(err)) { await setTimer({ priceBackoffUntil: Date.now() + 10 * 60 * 1000 }); return; } // Octane wants a break
       continue;
+    } finally {
+      await pause(400); // gentle on Octane, whatever happened
     }
-    await new Promise((r) => setTimeout(r, 400)); // gentle on Octane
-    a.lowest = best?.price ?? null;
-    a.checkedAt = Date.now();
-    changed = true;
-    if (!best) continue;
-    const value = values[a.assetId]?.value || 0;
-    const underMax = a.max > 0 && best.price <= a.max;
-    const underValue = a.belowValue && value > 0 && best.price < value;
-    if (!underMax && !underValue) continue;
-    if (a.last?.userAssetId === best.userAssetId && a.last?.price === best.price) continue; // already told you
-    a.last = { userAssetId: best.userAssetId, price: best.price, at: Date.now() };
-    const why = underMax ? `your alert: ${V.fmt(a.max)} or less` : `below its value of ${V.fmt(value)}`;
-    notify(`item-${a.assetId}`, `${a.name} for ${V.fmt(best.price)} Robux`, `Listed by ${best.seller || "a reseller"} (${why}).`);
-  }
-  if (changed) {
-    // keep alerts the popup added or removed meanwhile
-    const { priceAlerts: now = [] } = await ext.storage.local.get("priceAlerts");
-    const byId = new Map(alerts.map((a) => [a.assetId, a]));
-    await ext.storage.local.set({ priceAlerts: now.map((a) => (byId.has(a.assetId) ? { ...a, ...pick(byId.get(a.assetId), ["lowest", "checkedAt", "last"]) } : a)) });
+    const { priceAlertState = {} } = await ext.storage.local.get("priceAlertState");
+    const st = priceAlertState[a.assetId] || { notified: [] };
+    st.lowest = best?.price ?? null;
+    st.checkedAt = Date.now();
+    let alert = null;
+    if (best) {
+      const value = values[a.assetId]?.value || 0;
+      const underMax = a.max > 0 && best.price <= a.max;
+      const underValue = a.belowValue && value > 0 && best.price < value;
+      const key = `${best.userAssetId}:${best.price}`;
+      if ((underMax || underValue) && !st.notified.includes(key)) {
+        st.notified = [key, ...st.notified].slice(0, 10);
+        alert = { why: underMax ? `your alert: ${V.fmt(a.max)} or less` : `below its value of ${V.fmt(value)}`, best };
+      }
+    }
+    await ext.storage.local.set({ priceAlertState: { ...priceAlertState, [a.assetId]: st } });
+    if (alert) notify(`item-${a.assetId}`, `${a.name} for ${V.fmt(alert.best.price)} Robux`, `Listed by ${alert.best.seller || "a reseller"} (${alert.why}).`);
   }
 }
-const pick = (o, keys) => Object.fromEntries(keys.filter((k) => k in o).map((k) => [k, o[k]]));
 
 // ---------- "can I afford it" alerts (Supa Games) ----------
-let lastAffordCheck = 0;
-let ownedCache = null; // { userId, ids: Set, at }
+// affordState: { userId, states: { [outfitId]: "ok" | "short" | "none" }, robux }
+// ownedCache:  { userId, ids, at } — the whole inventory, or nothing
+async function ownedAssets(userId, refresh) {
+  const { ownedCache = null } = await ext.storage.local.get("ownedCache");
+  if (!refresh && ownedCache?.userId === userId && Date.now() - ownedCache.at < 15 * 60 * 1000) return new Set(ownedCache.ids);
+  try {
+    const ids = await S.fetchOwnedAssets(userId);
+    await ext.storage.local.set({ ownedCache: { userId, ids: [...ids], at: Date.now() } });
+    return ids;
+  } catch {
+    // incomplete (private inventory, or Octane busy): better no answer than a wrong one
+    return ownedCache?.userId === userId ? new Set(ownedCache.ids) : null;
+  }
+}
+
 async function pollAfford(settings, viewer) {
   if (!settings.enabled || !settings.perks || !settings.notifyAfford || !viewer?.id) return;
-  if (Date.now() - lastAffordCheck < 5 * 60 * 1000) return;
-  lastAffordCheck = Date.now();
-  const { sandboxOutfits = [], affordState = {} } = await ext.storage.local.get(["sandboxOutfits", "affordState"]);
+  const t = await timers();
+  if (Date.now() - (t.affordAt || 0) < 5 * 60 * 1000) return;
+  await setTimer({ affordAt: Date.now() });
+  const { sandboxOutfits = [], affordState = null } = await ext.storage.local.get(["sandboxOutfits", "affordState"]);
   if (!sandboxOutfits.length) return;
   let balance;
   try {
@@ -237,27 +284,27 @@ async function pollAfford(settings, viewer) {
   } catch {
     return; // signed out
   }
-  if (!ownedCache || ownedCache.userId !== viewer.id || Date.now() - ownedCache.at > 15 * 60 * 1000) {
-    try {
-      ownedCache = { userId: viewer.id, ids: await S.fetchOwnedAssets(viewer.id), at: Date.now() };
-    } catch { /* keep the last list */ }
-  }
-  const owned = ownedCache?.ids || new Set();
-  const next = {};
+  const sameUser = affordState?.userId === viewer.id;
+  // spent Robux since last time: probably bought something, so look again
+  const owned = await ownedAssets(viewer.id, sameUser && balance.robux < (affordState.robux ?? 0));
+  if (!owned) return;
+  const states = {};
   for (const o of sandboxOutfits) {
-    let cost = 0, toBuy = 0;
+    let robux = 0, tix = 0, toBuy = 0;
     for (const it of o.items || []) {
-      if (owned.has(it.id) || it.price?.robux == null) continue;
-      cost += it.price.robux;
-      toBuy++;
+      if (owned.has(it.id)) continue;
+      if (it.price?.robux != null) { robux += it.price.robux; toBuy++; }
+      else if (it.price?.tix != null) { tix += it.price.tix; toBuy++; }
     }
-    const state = !toBuy ? "none" : cost <= balance.robux ? "ok" : "short";
-    next[o.id] = state;
-    if (state === "ok" && affordState[o.id] === "short") {
-      notify(`outfit-${o.id}`, `You can afford "${o.name}" now`, `${V.fmt(cost)} Robux left to buy and you have ${V.fmt(balance.robux)}.`);
+    const state = !toBuy ? "none" : robux <= balance.robux && tix <= balance.tickets ? "ok" : "short";
+    states[o.id] = state;
+    if (sameUser && state === "ok" && affordState.states?.[o.id] === "short") {
+      const cost = [robux ? `${V.fmt(robux)} Robux` : "", tix ? `${V.fmt(tix)} Tix` : ""].filter(Boolean).join(" + ");
+      notify(`outfit-${o.id}`, `You can afford "${o.name}" now`, `${cost} left to buy, and you have ${V.fmt(balance.robux)} Robux.`);
     }
   }
-  await ext.storage.local.set({ affordState: next });
+  // another account: start its baseline without alerts
+  await ext.storage.local.set({ affordState: { userId: viewer.id, states, robux: balance.robux } });
 }
 
 async function pollAlerts() {
@@ -271,9 +318,10 @@ async function pollAlerts() {
 
 let alerting = null;
 function onTick() {
-  pollFriends();
   getValues(); // refreshes when the cache is older than V.TTL
-  alerting ??= pollAlerts().catch(() => {}).finally(() => { alerting = null; });
+  // alerts after the friends poll, not at the same moment
+  const friends = pollFriends().catch(() => {});
+  alerting ??= friends.then(pollAlerts).catch(() => {}).finally(() => { alerting = null; });
 }
 
 // ---------- updates ----------

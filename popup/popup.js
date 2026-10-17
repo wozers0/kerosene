@@ -711,6 +711,7 @@ async function renderGames(refresh = false) {
 }
 
 // ---------- price alerts (Supa Games) ----------
+let alertState = {}; // what the background last saw per item (priceAlertState)
 function renderAlerts() {
   const list = $("alert-list");
   list.replaceChildren();
@@ -720,7 +721,8 @@ function renderAlerts() {
     list.append(el("li", { className: "empty-note", textContent: "Nothing watched yet. Add a limited below." }));
     return;
   }
-  for (const a of alerts) {
+  for (const alert of alerts) {
+    const a = { ...alert, ...(alertState[alert.assetId] || {}) };
     const v = values[a.assetId] || { id: a.assetId, name: a.name, value: 0, rap: 0, valued: false };
     const row = itemRow(v, [iconBtn("×", "Stop watching", () => saveAlerts(alerts.filter((x) => x.assetId !== a.assetId)))], true);
     const want = [a.max > 0 ? `≤ ${V.fmt(a.max)}` : "", a.belowValue ? "below value" : ""].filter(Boolean).join(" or ");
@@ -769,9 +771,13 @@ function wireAlerts() {
     if (e.key === "Escape") box.hidden = true;
   });
   $("alert-max").addEventListener("input", (e) => { e.target.value = e.target.value.replace(/[^\d]/g, "").slice(0, 9); });
-  // the background writes the latest prices back
+  // the background records the latest prices as it checks
+  ext.storage.local.get("priceAlertState").then(({ priceAlertState = {} }) => { alertState = priceAlertState; renderAlerts(); });
   ext.storage.onChanged.addListener((changes, area) => {
-    if (area === "local" && changes.priceAlerts) { settings.priceAlerts = changes.priceAlerts.newValue || []; renderAlerts(); }
+    if (area !== "local") return;
+    if (changes.priceAlertState) alertState = changes.priceAlertState.newValue || {};
+    if (changes.priceAlerts) settings.priceAlerts = changes.priceAlerts.newValue || [];
+    if (changes.priceAlertState || changes.priceAlerts) renderAlerts();
   });
 }
 

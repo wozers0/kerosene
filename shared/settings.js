@@ -216,6 +216,7 @@
       for (const it of d.data || []) owned.add(it.assetId);
       cursor = d.nextPageCursor;
       if (!cursor) break;
+      await new Promise((r) => setTimeout(r, 300)); // gentle on Octane (a 403 throws out of here)
     }
     return owned;
   }
