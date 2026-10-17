@@ -28,15 +28,37 @@
     showValues: true,
     avatarSandbox: true,
     calc: { give: [], get: [], giveRobux: 0, getRobux: 0 },
+    notifyTrades: true,
+    // Supa Games perks
+    hideAds: true,
+    priceAlerts: [], // [{ assetId, name, max, belowValue, last }]
+    notifyAfford: true,
   };
 
+  // Themes, backgrounds, hide ads, price alerts and "can I afford it" alerts
+  // are perks for members of this Octane group.
+  const GROUP = { id: 428, name: "Supa Games", url: `${SITE}/groups/428/supa-games` };
+  const ACCESS_TTL = 30 * 60 * 1000;
+
+  // groupAccess: { userId, member, checkedAt } (kept fresh by the background)
+  const hasPerks = (access, viewer) => Boolean(access?.member && viewer?.id && access.userId === viewer.id);
+
   async function load() {
-    const got = await ext.storage.local.get(DEFAULTS);
+    const got = await ext.storage.local.get({ ...DEFAULTS, groupAccess: null, viewer: null });
+    const { groupAccess, viewer, ...rest } = got;
     return {
-      ...DEFAULTS, ...got,
+      ...DEFAULTS, ...rest,
       bg: { ...DEFAULTS.bg, ...(got.bg || {}) },
       calc: { ...DEFAULTS.calc, ...(got.calc || {}) },
+      perks: hasPerks(groupAccess, viewer),
     };
+  }
+
+  // The settings as they take effect: without the perks, member-only
+  // features fall back to off (the choices stay saved for later).
+  function effective(s) {
+    if (s.perks) return s;
+    return { ...s, theme: "original", bg: { ...s.bg, mode: "none" }, hideAds: false, notifyAfford: false, priceAlerts: [] };
   }
 
   function save(patch) {
@@ -45,7 +67,7 @@
 
   async function getJson(url) {
     const res = await fetch(url, { credentials: "include", headers: { Accept: "application/json" } });
-    if (!res.ok) throw new Error(res.status === 404 ? "not found" : `HTTP ${res.status}`);
+    if (!res.ok) throw Object.assign(new Error(res.status === 404 ? "not found" : `HTTP ${res.status}`), { status: res.status });
     return res.json();
   }
 
@@ -127,6 +149,77 @@
     return items.map((i) => ({ assetId: i.assetId, name: i.name, rap: i.recentAveragePrice || 0, serial: i.serialNumber }));
   }
 
+  // ---------- Supa Games membership ----------
+  async function fetchGroupMember(userId) {
+    const { data = [] } = await getJson(`${API}/groups/v2/users/${encodeURIComponent(userId)}/groups/roles`);
+    return data.some((g) => g.group?.id === GROUP.id);
+  }
+
+  // ---------- games ----------
+  // Favourited games: the legacy favourites list (public)
+  async function fetchFavoriteGames(userId) {
+    const { Data } = await getJson(`${SITE}/users/favorites/list-json?assetTypeId=9&itemsPerPage=24&pageNumber=1&userId=${encodeURIComponent(userId)}`);
+    return (Data?.Items || []).map((i) => ({
+      universeId: i.Item?.UniverseId, placeId: i.Item?.AssetId, name: i.Item?.Name || "Game",
+      url: i.Item?.AbsoluteUrl || `/games/${i.Item?.AssetId}/`,
+    })).filter((g) => g.universeId && g.placeId);
+  }
+
+  // { universeId: { playing, visits } }
+  async function fetchGameStats(universeIds) {
+    const out = {};
+    if (!universeIds.length) return out;
+    const { data = [] } = await getJson(`${API}/games/v1/games?universeIds=${universeIds.slice(0, 50).join(",")}`);
+    for (const g of data) out[g.id] = { playing: g.playing || 0, visits: g.visits || 0 };
+    return out;
+  }
+
+  async function fetchGameIcons(universeIds) {
+    const out = {};
+    if (!universeIds.length) return out;
+    try {
+      const { data = [] } = await getJson(`${API}/thumbnails/v1/games/icons?universeIds=${universeIds.slice(0, 50).join(",")}&size=150x150&format=Png`);
+      for (const t of data) if (t.state === "Completed" && t.imageUrl) out[t.targetId] = t.imageUrl;
+    } catch { /* icons are cosmetic */ }
+    return out;
+  }
+
+  // ---------- economy & trades (trades and balance need the Octane login) ----------
+  // Cheapest listing not by `viewerId`: { price, userAssetId, seller } or null
+  async function fetchLowestResale(assetId, viewerId) {
+    const { data = [] } = await getJson(`${API}/economy/v1/assets/${encodeURIComponent(assetId)}/resellers?limit=25`);
+    const best = data.filter((l) => String(l.seller?.id) !== String(viewerId))
+      .sort((a, b) => a.price - b.price || a.userAssetId - b.userAssetId)[0];
+    return best ? { price: best.price, userAssetId: best.userAssetId, seller: best.seller?.name || "" } : null;
+  }
+
+  async function fetchBalance(userId) {
+    const d = await getJson(`${API}/economy/v1/users/${encodeURIComponent(userId)}/currency`);
+    return { robux: d.robux || 0, tickets: d.tickets || 0 };
+  }
+
+  // type: Inbound | Outbound | Completed | Inactive
+  async function fetchTrades(type = "Inbound", limit = 25) {
+    const { data = [] } = await getJson(`${API}/trades/v1/trades/${type}?limit=${limit}&sortOrder=Desc`);
+    return data;
+  }
+
+  const fetchTrade = (id) => getJson(`${API}/trades/v1/trades/${encodeURIComponent(id)}`);
+
+  // Every wearable asset the user owns (public inventories), as a Set of ids
+  async function fetchOwnedAssets(userId) {
+    const types = [2, 8, 11, 12, 17, 18, 19, 27, 28, 29, 30, 31, 32, 41, 42, 43, 44, 45, 46, 47, 48, 50, 51, 52, 53, 54, 55, 56, 61];
+    const owned = new Set();
+    let cursor = "";
+    for (let page = 0; page < 100; page++) {
+      const d = await getJson(`${API}/inventory/v2/users/${encodeURIComponent(userId)}/inventory?assetTypes=${types.join(",")}&limit=100&sortOrder=Desc${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`);
+      for (const it of d.data || []) owned.add(it.assetId);
+      cursor = d.nextPageCursor;
+      if (!cursor) break;
+    }
+    return owned;
+  }
+
   // "0.10.1" > "0.9.9"
   function newerVersion(a, b) {
     const pa = String(a).split(".").map(Number), pb = String(b).split(".").map(Number);
@@ -146,7 +239,9 @@
   }
 
   globalThis.KeroseneSettings = {
-    SITE, API, REPO, VERSION_URL, DEFAULTS, load, save, newerVersion, fetchLatestRelease,
+    SITE, API, REPO, VERSION_URL, DEFAULTS, GROUP, ACCESS_TTL, load, save, effective, hasPerks, newerVersion, fetchLatestRelease,
     fetchFriends, fetchUser, fetchProfile, searchUsers, resolveUser, fetchHeadshots, fetchCollectibles,
+    fetchGroupMember, fetchFavoriteGames, fetchGameStats, fetchGameIcons, fetchLowestResale, fetchBalance,
+    fetchTrades, fetchTrade, fetchOwnedAssets,
   };
 })();

@@ -4,11 +4,18 @@ Fuel for [Octane](https://octane.wtf). Kerosene is a browser extension for the O
 
 ## Features
 
+**Supa Games perks.** Themes, backgrounds, hide ads, price alerts and "can I afford it" alerts are for members of the [Supa Games](https://octane.wtf/groups/428/supa-games) group on Octane (joining is free). Everything else is for everyone.
+
 - **Era themes for octane.wtf** — Classic 2018 (light, blue top bar, Source Sans), Dark 2020 (Roblox 2020 dark, Gotham) and Modern 2026 (near-black, soft corners, Inter). Themes switch Octane's own light/dark mode, recolour its stylesheets and add era touches; going back to Original restores your own light/dark setting.
 - **Custom backgrounds** — the animated character field, Baseplate, Midnight, Aurora, Sunset and Ocean presets, or your own image / GIF / video (link or upload), with dim and blur sliders.
 - **Item values** from [Octomons](https://octomons.wtf) — value, demand, trend, projected and rare badges on limited item cards; a value panel on every limited's item page; total value on limiteds pages.
 - **Trade helpers** — Value and RAP totals for both sides of every trade (and while you build one), plus a **WIN / LOSS / FAIR** banner with warnings for projected items, low demand, and rares you're giving away. Robux is counted after Octane's 30% fee.
 - **Avatar Sandbox** — a **Sandbox** tab in Octane's avatar editor (octane.wtf/my/avatar) that looks like the rest of the editor but lists every item in Octane's catalog, on sale or not, by category, with search and sorting. The price sits under every item (cheapest reseller for limiteds), click to try it on (the preview renders it on your own avatar, in 2D or 3D), and the outfit's total shows next to your balance with **how much Robux you still need**. Save as many outfits as you like; they're stored locally, each with its price and what you'd still need.
+- **Trade alerts**: a notification as soon as someone sends you a trade, already showing WIN / LOSS / FAIR and the value difference.
+- **Price-drop alerts** *(Supa Games)*: watch any limited and get pinged when someone lists it at or under your price, or below its Octomons value.
+- **"Can I afford it" alerts** *(Supa Games)*: a notification when your Robux covers one of your saved Sandbox outfits.
+- **Hide ads** *(Supa Games)*: removes Octane's sponsor ads from every page.
+- **Favourite games bar**: your Octane favourites at the top of the popup with live player counts; one click opens the game.
 - **Trade calculator** in the popup — add items to each side by name or acronym, add Robux, see the verdict.
 - **Your limiteds' worth** — item count, total value and RAP in the popup.
 - **Friends** — syncs your Octane friends list automatically, with avatars and live status: online, in Studio, or *playing &lt;game&gt;* with a Join button. Watch extra people by username or ID. Toolbar badge shows how many are online; optional alerts when a friend comes online or starts a game.

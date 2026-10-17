@@ -32,9 +32,12 @@
       <button class="btn small" id="access-allow" type="button">Allow</button>
     </div>
 
+    <!-- favourite games: one click to play -->
+    <div class="games-bar" id="games-bar" hidden></div>
+
     <nav class="sections">
       <!-- Themes -->
-      <details class="drop" data-key="themes">
+      <details class="drop" data-key="themes" data-perk>
         <summary><span class="chev">›</span> Themes <span class="meta" id="theme-meta"></span></summary>
         <div class="drop-body">
           <div class="theme-grid" id="theme-grid"></div>
@@ -50,7 +53,7 @@
       </details>
 
       <!-- Backgrounds -->
-      <details class="drop" data-key="backgrounds">
+      <details class="drop" data-key="backgrounds" data-perk>
         <summary><span class="chev">›</span> Backgrounds <span class="meta" id="bg-meta"></span></summary>
         <div class="drop-body">
           <div class="bg-grid" id="bg-grid"></div>
@@ -149,6 +152,26 @@
         </div>
       </details>
 
+      <!-- Price alerts (Supa Games) -->
+      <details class="drop" data-key="alerts" data-perk>
+        <summary><span class="chev">›</span> Price alerts <span class="meta" id="alerts-meta"></span></summary>
+        <div class="drop-body">
+          <ul class="item-list compact" id="alert-list"></ul>
+          <div class="calc-add-row">
+            <div class="suggest-wrap">
+              <input class="input" id="alert-add" placeholder="+ watch a limited" autocomplete="off">
+              <ul class="suggest" hidden></ul>
+            </div>
+            <input class="input calc-robux" id="alert-max" inputmode="numeric" placeholder="≤ R$">
+          </div>
+          <label class="row compact">
+            <span class="row-title">Also when it's listed below its value</span>
+            <input type="checkbox" class="toggle" id="alert-below" checked>
+          </label>
+          <span class="note">Checked every 2 minutes. You get a notification when someone lists it at or under your price.</span>
+        </div>
+      </details>
+
       <!-- Quick links -->
       <details class="drop" data-key="links">
         <summary><span class="chev">›</span> Quick links</summary>
@@ -200,6 +223,27 @@
               <span class="row-desc">Try on any item in the avatar editor and save outfits</span>
             </span>
             <input type="checkbox" class="toggle" data-setting="avatarSandbox">
+          </label>
+          <label class="row">
+            <span>
+              <span class="row-title">Trade alerts</span>
+              <span class="row-desc">Notify when you get a trade, with its WIN/LOSS</span>
+            </span>
+            <input type="checkbox" class="toggle" data-setting="notifyTrades">
+          </label>
+          <label class="row" data-perk>
+            <span>
+              <span class="row-title">Hide ads</span>
+              <span class="row-desc">Removes the sponsor ads from Octane pages</span>
+            </span>
+            <input type="checkbox" class="toggle" data-setting="hideAds">
+          </label>
+          <label class="row" data-perk>
+            <span>
+              <span class="row-title">"Can I afford it" alerts</span>
+              <span class="row-desc">Notify when your Robux covers a saved Sandbox outfit</span>
+            </span>
+            <input type="checkbox" class="toggle" data-setting="notifyAfford">
           </label>
           <label class="row">
             <span>

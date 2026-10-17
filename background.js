@@ -117,9 +117,163 @@ async function getValues(force = false) {
   return valuesLoading;
 }
 
+// ---------- Supa Games perks ----------
+// Membership of the Supa Games group unlocks themes, backgrounds, hide ads,
+// price alerts and "can I afford it" alerts. Checked every 30 minutes, when
+// the signed-in user changes, and when the popup asks.
+let accessCheck = null;
+function checkAccess(force = false) {
+  accessCheck ??= (async () => {
+    const { viewer = null, groupAccess = null } = await ext.storage.local.get(["viewer", "groupAccess"]);
+    if (!viewer?.id) return groupAccess;
+    const fresh = groupAccess?.userId === viewer.id && Date.now() - groupAccess.checkedAt < S.ACCESS_TTL;
+    if (fresh && !force) return groupAccess;
+    try {
+      const next = { userId: viewer.id, member: await S.fetchGroupMember(viewer.id), checkedAt: Date.now() };
+      if (next.member !== groupAccess?.member || next.userId !== groupAccess?.userId || Date.now() - (groupAccess?.checkedAt || 0) > 5 * 60 * 1000) {
+        await ext.storage.local.set({ groupAccess: next });
+      }
+      return next;
+    } catch {
+      return groupAccess; // offline / rate limited: keep what we knew
+    }
+  })().finally(() => { accessCheck = null; });
+  return accessCheck;
+}
+
+// ---------- trade alerts (everyone) ----------
+const TRADE_SEEN_MAX = 300;
+async function pollTrades(settings, viewer) {
+  if (!settings.enabled || !settings.notifyTrades || !viewer?.id) return;
+  let list;
+  try {
+    list = await S.fetchTrades("Inbound", 25);
+  } catch {
+    return; // signed out, or Octane is busy
+  }
+  const { tradeSeen = null } = await ext.storage.local.get("tradeSeen");
+  const ids = list.map((t) => t.id);
+  // first look (or another account): remember what's there, no alerts
+  if (!tradeSeen || tradeSeen.userId !== viewer.id) {
+    await ext.storage.local.set({ tradeSeen: { userId: viewer.id, ids } });
+    return;
+  }
+  const seen = new Set(tradeSeen.ids);
+  const fresh = list.filter((t) => !seen.has(t.id) && t.isActive !== false);
+  if (!fresh.length) return;
+  await ext.storage.local.set({ tradeSeen: { userId: viewer.id, ids: [...ids, ...tradeSeen.ids.filter((id) => !ids.includes(id))].slice(0, TRADE_SEEN_MAX) } });
+  const { items: values = {} } = await getValues();
+  for (const t of fresh.slice(0, 5)) {
+    const from = t.user?.displayName || t.user?.name || "someone";
+    try {
+      const d = await S.fetchTrade(t.id);
+      const offers = d.offers || [];
+      const mine = offers.find((o) => o.user?.id === viewer.id) || offers[0];
+      const theirs = offers.find((o) => o !== mine) || offers[1];
+      const side = (o) => V.offerTotals((o?.userAssets || []).map((a) => ({ assetId: a.assetId, rap: a.recentAveragePrice || 0 })), V.afterFee(o?.robux || 0), values);
+      const give = side(mine), get = side(theirs);
+      const v = V.verdict(give, get);
+      const word = { win: "WIN", loss: "LOSS", fair: "FAIR" }[v.kind] || "New trade";
+      const sign = v.diff > 0 ? "+" : v.diff < 0 ? "−" : "±";
+      notify(`trade-${t.id}`, `${word}: trade from ${from}`,
+        `You give ${V.fmt(give.value)} · you get ${V.fmt(get.value)} (${sign}${V.fmt(Math.abs(v.diff))} value)`);
+    } catch {
+      notify(`trade-${t.id}`, `New trade from ${from}`, "Open your trades to see it.");
+    }
+  }
+}
+
+// ---------- price-drop alerts (Supa Games) ----------
+let lastPriceCheck = 0;
+async function pollPriceAlerts(settings, viewer) {
+  if (!settings.enabled || !settings.perks || !settings.priceAlerts.length) return;
+  if (Date.now() - lastPriceCheck < 2 * 60 * 1000) return;
+  lastPriceCheck = Date.now();
+  const { items: values = {} } = await getValues();
+  const alerts = settings.priceAlerts.slice(0, 20).map((a) => ({ ...a }));
+  let changed = false;
+  for (const a of alerts) {
+    let best;
+    try {
+      best = await S.fetchLowestResale(a.assetId, viewer?.id);
+    } catch {
+      continue;
+    }
+    await new Promise((r) => setTimeout(r, 400)); // gentle on Octane
+    a.lowest = best?.price ?? null;
+    a.checkedAt = Date.now();
+    changed = true;
+    if (!best) continue;
+    const value = values[a.assetId]?.value || 0;
+    const underMax = a.max > 0 && best.price <= a.max;
+    const underValue = a.belowValue && value > 0 && best.price < value;
+    if (!underMax && !underValue) continue;
+    if (a.last?.userAssetId === best.userAssetId && a.last?.price === best.price) continue; // already told you
+    a.last = { userAssetId: best.userAssetId, price: best.price, at: Date.now() };
+    const why = underMax ? `your alert: ${V.fmt(a.max)} or less` : `below its value of ${V.fmt(value)}`;
+    notify(`item-${a.assetId}`, `${a.name} for ${V.fmt(best.price)} Robux`, `Listed by ${best.seller || "a reseller"} (${why}).`);
+  }
+  if (changed) {
+    // keep alerts the popup added or removed meanwhile
+    const { priceAlerts: now = [] } = await ext.storage.local.get("priceAlerts");
+    const byId = new Map(alerts.map((a) => [a.assetId, a]));
+    await ext.storage.local.set({ priceAlerts: now.map((a) => (byId.has(a.assetId) ? { ...a, ...pick(byId.get(a.assetId), ["lowest", "checkedAt", "last"]) } : a)) });
+  }
+}
+const pick = (o, keys) => Object.fromEntries(keys.filter((k) => k in o).map((k) => [k, o[k]]));
+
+// ---------- "can I afford it" alerts (Supa Games) ----------
+let lastAffordCheck = 0;
+let ownedCache = null; // { userId, ids: Set, at }
+async function pollAfford(settings, viewer) {
+  if (!settings.enabled || !settings.perks || !settings.notifyAfford || !viewer?.id) return;
+  if (Date.now() - lastAffordCheck < 5 * 60 * 1000) return;
+  lastAffordCheck = Date.now();
+  const { sandboxOutfits = [], affordState = {} } = await ext.storage.local.get(["sandboxOutfits", "affordState"]);
+  if (!sandboxOutfits.length) return;
+  let balance;
+  try {
+    balance = await S.fetchBalance(viewer.id);
+  } catch {
+    return; // signed out
+  }
+  if (!ownedCache || ownedCache.userId !== viewer.id || Date.now() - ownedCache.at > 15 * 60 * 1000) {
+    try {
+      ownedCache = { userId: viewer.id, ids: await S.fetchOwnedAssets(viewer.id), at: Date.now() };
+    } catch { /* keep the last list */ }
+  }
+  const owned = ownedCache?.ids || new Set();
+  const next = {};
+  for (const o of sandboxOutfits) {
+    let cost = 0, toBuy = 0;
+    for (const it of o.items || []) {
+      if (owned.has(it.id) || it.price?.robux == null) continue;
+      cost += it.price.robux;
+      toBuy++;
+    }
+    const state = !toBuy ? "none" : cost <= balance.robux ? "ok" : "short";
+    next[o.id] = state;
+    if (state === "ok" && affordState[o.id] === "short") {
+      notify(`outfit-${o.id}`, `You can afford "${o.name}" now`, `${V.fmt(cost)} Robux left to buy and you have ${V.fmt(balance.robux)}.`);
+    }
+  }
+  await ext.storage.local.set({ affordState: next });
+}
+
+async function pollAlerts() {
+  const { viewer = null } = await ext.storage.local.get("viewer");
+  await checkAccess();
+  const settings = await S.load(); // after the check: perks may have just changed
+  await pollTrades(settings, viewer);
+  await pollPriceAlerts(settings, viewer);
+  await pollAfford(settings, viewer);
+}
+
+let alerting = null;
 function onTick() {
   pollFriends();
   getValues(); // refreshes when the cache is older than V.TTL
+  alerting ??= pollAlerts().catch(() => {}).finally(() => { alerting = null; });
 }
 
 // ---------- updates ----------
@@ -310,17 +464,29 @@ ext.alarms.onAlarm.addListener((a) => { if (a.name === ALARM) onTick(); });
 // a new signed-in user (or a settings change) should refresh straight away
 ext.storage.onChanged.addListener((changes, area) => {
   if (area === "local" && (changes.viewer || changes.syncFriends || changes.friends)) pollFriends();
+  if (area === "local" && changes.viewer && changes.viewer.newValue?.id !== changes.viewer.oldValue?.id) checkAccess(true);
 });
 
 ext.notifications.onClicked.addListener((nid) => {
-  const m = nid.match(/^kerosene-(game|user)-(\d+)-/);
-  if (m) ext.tabs.create({ url: m[1] === "game" ? `${S.SITE}/games/${m[2]}` : `${S.SITE}/users/${m[2]}/profile` });
+  const m = nid.match(/^kerosene-(game|user|trade|item|outfit)-([\w]+)-/);
+  const urls = {
+    game: (id) => `${S.SITE}/games/${id}`,
+    user: (id) => `${S.SITE}/users/${id}/profile`,
+    trade: () => `${S.SITE}/trades`,
+    item: (id) => `${S.SITE}/catalog/${id}/item`,
+    outfit: () => `${S.SITE}/my/avatar`,
+  };
+  if (m) ext.tabs.create({ url: urls[m[1]](m[2]) });
   ext.notifications.clear(nid);
 });
 
 ext.runtime.onMessage.addListener((msg, _sender, reply) => {
   if (msg?.type === "refresh-friends") {
     pollFriends().then(reply, () => reply(null));
+    return true;
+  }
+  if (msg?.type === "check-access") {
+    checkAccess(Boolean(msg.force)).then(reply, () => reply(null));
     return true;
   }
   if (msg?.type === "update-staged") {

@@ -536,6 +536,53 @@ html:has(body.in-tab) { width: auto; }
 .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 6px var(--ok); }
 body.off .dot { background: var(--muted); box-shadow: none; }
 
+/* ---------- favourite games bar ---------- */
+.games-bar { display: flex; gap: 6px; overflow-x: auto; padding: 2px 1px 4px; scrollbar-width: thin; }
+.games-bar[hidden] { display: none; }
+.games-bar::-webkit-scrollbar { height: 4px; }
+.games-bar::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); border-radius: 2px; }
+.game {
+  flex: 0 0 72px;
+  width: 72px;
+  min-width: 0;
+  overflow: hidden;
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 6px 4px 5px;
+  border: 1px solid var(--line); border-radius: 10px;
+  background: var(--panel); backdrop-filter: blur(8px);
+  color: var(--text); font: inherit; cursor: pointer;
+  transition: border-color 0.15s, transform 0.15s;
+}
+.game:hover { border-color: rgba(var(--accent), 0.55); transform: translateY(-1px); }
+.game:focus-visible { outline: 1px solid rgb(var(--accent)); }
+.game-icon { width: 44px; height: 44px; border-radius: 9px; background: rgba(255, 255, 255, 0.06) center / cover no-repeat; }
+.game-name { display: block; width: 100%; max-width: 100%; font-size: 9.5px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.game-count { font-size: 9px; color: var(--muted); white-space: nowrap; }
+.game-count.live { color: var(--ok); }
+.game-count.live::before { content: "\25CF "; font-size: 7px; vertical-align: 1px; }
+
+/* ---------- Supa Games perks ---------- */
+.perk-pill {
+  margin-left: 6px; padding: 1px 6px; border-radius: 6px;
+  font-size: 9px; font-weight: 700; letter-spacing: 0.3px; text-transform: uppercase;
+  color: #ffd166; background: rgba(255, 209, 102, 0.14); border: 1px solid rgba(255, 209, 102, 0.35);
+  vertical-align: 1px;
+}
+.perk-pill::before { content: "\1F512  "; font-size: 8px; }
+.perk-lock {
+  margin-bottom: 8px; padding: 10px 11px;
+  border: 1px solid rgba(255, 209, 102, 0.35); border-radius: 9px;
+  background: rgba(255, 209, 102, 0.07);
+}
+.perk-lock.unlocked { color: var(--ok); border-color: rgba(110, 200, 120, 0.4); background: rgba(110, 200, 120, 0.08); font-size: 11px; animation: slide 0.3s ease both; }
+.perk-title { font-weight: 700; color: #ffd166; margin-bottom: 3px; }
+.perk-text { margin: 0 0 8px; color: var(--muted); font-size: 10.5px; line-height: 1.5; }
+.drop.locked .drop-body > :not(.perk-lock) { opacity: 0.35; pointer-events: none; filter: grayscale(0.6); user-select: none; }
+.row.locked { opacity: 0.55; }
+.row.locked input { pointer-events: none; }
+.item-row.hit { border-color: rgba(110, 200, 120, 0.45); background: rgba(110, 200, 120, 0.08); }
+.item-row.hit .item-sub { color: var(--ok); }
+
 /* ---------- updating ---------- */
 /* the popup turns into a loading screen; the character field keeps moving behind it */
 .update-screen {

@@ -59,13 +59,14 @@ function timeAgo(ts) {
 
 // ---------- header / status ----------
 function renderStatus() {
-  const theme = T.THEMES[settings.theme] || T.THEMES.original;
-  const bgOn = settings.bg.mode !== "none";
+  const live = S.effective(settings); // without the perks: Original, no background
+  const theme = T.THEMES[live.theme] || T.THEMES.original;
+  const bgOn = live.bg.mode !== "none";
   $("active-pill").textContent = settings.enabled ? `${theme.year}${bgOn ? " + bg" : ""}` : "off";
   $("theme-meta").textContent = `${theme.label} · ${theme.year}`;
-  $("bg-meta").textContent = settings.bg.mode === "none"
+  $("bg-meta").textContent = live.bg.mode === "none"
     ? "none"
-    : settings.bg.mode === "image" ? "custom" : T.BG_PRESETS[settings.bg.preset]?.label || "";
+    : live.bg.mode === "image" ? "custom" : T.BG_PRESETS[live.bg.preset]?.label || "";
   document.body.classList.toggle("off", !settings.enabled);
   $("status-text").textContent = settings.enabled ? "ready" : "disabled";
 }
@@ -433,6 +434,7 @@ async function loadValues(force = false) {
   renderValueResults();
   renderCalc();
   renderWorth();
+  renderAlerts();
 }
 
 function itemRow(v, actions = [], compact = false) {
@@ -613,6 +615,164 @@ function wireCalc() {
     });
   }
   $("calc-clear").addEventListener("click", () => saveCalc({ give: [], get: [], giveRobux: 0, getRobux: 0 }));
+}
+
+// ---------- Supa Games perks ----------
+// Themes, backgrounds, hide ads, price alerts and "can I afford it" alerts
+// unlock for members of the Supa Games group on Octane.
+async function renderPerks(justUnlocked = false) {
+  const { groupAccess = null, viewer = null } = await ext.storage.local.get(["groupAccess", "viewer"]);
+  const locked = !settings.perks;
+  for (const d of document.querySelectorAll("details.drop[data-perk]")) {
+    d.classList.toggle("locked", locked);
+    d.querySelector(".perk-lock")?.remove();
+    d.querySelector(".perk-pill")?.remove();
+    if (justUnlocked) d.querySelector(".drop-body").prepend(el("div", { className: "perk-lock unlocked", textContent: "Unlocked. Thanks for joining Supa Games!" }));
+    if (!locked) continue;
+    d.querySelector("summary").append(el("span", { className: "perk-pill", textContent: "Supa Games" }));
+    d.querySelector(".drop-body").prepend(lockCard(groupAccess, viewer));
+  }
+  for (const row of document.querySelectorAll(".row[data-perk]")) {
+    row.classList.toggle("locked", locked);
+    row.querySelector("input").disabled = locked;
+    row.querySelector(".perk-pill")?.remove();
+    if (locked) row.querySelector(".row-title").append(el("span", { className: "perk-pill", textContent: "Supa Games" }));
+  }
+}
+
+function lockCard(access, viewer) {
+  const card = el("div", { className: "perk-lock" });
+  const title = el("div", { className: "perk-title", textContent: "Supa Games members only" });
+  const text = el("p", { className: "perk-text" });
+  const actions = el("div", { className: "inline" });
+  if (!viewer?.id) {
+    text.textContent = "Open octane.wtf while you're signed in, so Kerosene knows who you are.";
+    actions.append(button("Open Octane", () => openSite("/home"), true));
+  } else {
+    text.textContent = "Themes, backgrounds, hide ads and price alerts are for members of the Supa Games group. Joining is free.";
+    actions.append(
+      button("Join Supa Games", () => ext.tabs.create({ url: S.GROUP.url }), true),
+      button("I've joined", async (e) => {
+        e.target.disabled = true;
+        e.target.textContent = "Checking…";
+        await refreshPerks(true);
+        if (!settings.perks) {
+          e.target.disabled = false;
+          e.target.textContent = "I've joined";
+          text.textContent = "Not in the group yet. Join it on Octane, then press this again.";
+        }
+      }),
+    );
+  }
+  card.append(title, text, actions);
+  return card;
+}
+
+// Ask the background to check membership (cached for a while unless forced)
+async function refreshPerks(force = false) {
+  const before = settings.perks;
+  await ext.runtime.sendMessage({ type: "check-access", force }).catch(() => null);
+  settings.perks = (await S.load()).perks;
+  if (settings.perks !== before || force) renderPerks(settings.perks && !before);
+}
+
+// ---------- favourite games ----------
+async function renderGames(refresh = false) {
+  const bar = $("games-bar");
+  const { viewer = null, favGames = null } = await ext.storage.local.get(["viewer", "favGames"]);
+  const draw = (games) => {
+    bar.replaceChildren();
+    bar.hidden = !games.length;
+    for (const g of games) {
+      const icon = el("span", { className: "game-icon" });
+      if (g.icon) icon.style.backgroundImage = `url("${g.icon}")`;
+      const b = el("button", { className: "game", type: "button", title: `${g.name}${g.playing != null ? ` · ${g.playing} playing` : ""}` }, [
+        icon,
+        el("span", { className: "game-name", textContent: g.name }),
+        el("span", { className: `game-count${g.playing ? " live" : ""}`, textContent: g.playing != null ? `${g.playing} playing` : "" }),
+      ]);
+      b.addEventListener("click", () => openSite(g.url));
+      bar.append(b);
+    }
+  };
+  if (favGames?.userId === viewer?.id && favGames?.games) draw(favGames.games);
+  if (!viewer?.id) return;
+  const stale = !favGames || favGames.userId !== viewer.id || Date.now() - favGames.at > 60 * 1000;
+  if (!stale && !refresh) return;
+  try {
+    const games = await S.fetchFavoriteGames(viewer.id);
+    const ids = games.map((g) => g.universeId);
+    const [stats, icons] = await Promise.all([S.fetchGameStats(ids).catch(() => ({})), S.fetchGameIcons(ids)]);
+    const full = games.map((g) => ({ ...g, playing: stats[g.universeId]?.playing ?? null, icon: icons[g.universeId] || "" }))
+      .sort((a, b) => (b.playing || 0) - (a.playing || 0));
+    await ext.storage.local.set({ favGames: { userId: viewer.id, games: full, at: Date.now() } });
+    draw(full);
+  } catch { /* keep the cached row */ }
+}
+
+// ---------- price alerts (Supa Games) ----------
+function renderAlerts() {
+  const list = $("alert-list");
+  list.replaceChildren();
+  const alerts = settings.priceAlerts || [];
+  $("alerts-meta").textContent = alerts.length ? `${alerts.length} watching` : "";
+  if (!alerts.length) {
+    list.append(el("li", { className: "empty-note", textContent: "Nothing watched yet. Add a limited below." }));
+    return;
+  }
+  for (const a of alerts) {
+    const v = values[a.assetId] || { id: a.assetId, name: a.name, value: 0, rap: 0, valued: false };
+    const row = itemRow(v, [iconBtn("×", "Stop watching", () => saveAlerts(alerts.filter((x) => x.assetId !== a.assetId)))], true);
+    const want = [a.max > 0 ? `≤ ${V.fmt(a.max)}` : "", a.belowValue ? "below value" : ""].filter(Boolean).join(" or ");
+    const now = a.lowest != null ? ` · lowest now ${V.fmt(a.lowest)}` : a.checkedAt ? " · no sellers" : "";
+    row.querySelector(".item-sub").textContent = `${want}${now}`;
+    if (a.lowest != null && ((a.max > 0 && a.lowest <= a.max) || (a.belowValue && v.value && a.lowest < v.value))) row.classList.add("hit");
+    list.append(row);
+  }
+}
+
+async function saveAlerts(alerts) {
+  await update({ priceAlerts: alerts });
+  renderAlerts();
+}
+
+function wireAlerts() {
+  const input = $("alert-add");
+  const box = input.nextElementSibling;
+  const add = (v) => {
+    input.value = "";
+    box.hidden = true;
+    const max = Number($("alert-max").value.replace(/[^\d]/g, "")) || 0;
+    const belowValue = $("alert-below").checked || !max;
+    const alerts = (settings.priceAlerts || []).filter((a) => a.assetId !== v.id);
+    alerts.unshift({ assetId: v.id, name: v.name, max, belowValue });
+    $("alert-max").value = "";
+    saveAlerts(alerts.slice(0, 20));
+  };
+  const show = () => {
+    const q = input.value.trim();
+    box.replaceChildren();
+    if (!q) { box.hidden = true; return; }
+    for (const v of V.search(values, q, 6)) {
+      const b = el("button", { type: "button" }, [el("span", { textContent: v.name }), el("span", { textContent: v.valued ? `V ${V.fmt(v.value)}` : `R ${V.fmt(v.rap)}` })]);
+      b.addEventListener("mousedown", (e) => e.preventDefault());
+      b.addEventListener("click", () => add(v));
+      box.append(b);
+    }
+    box.hidden = box.childElementCount === 0;
+  };
+  input.addEventListener("input", show);
+  input.addEventListener("focus", show);
+  input.addEventListener("blur", () => setTimeout(() => { box.hidden = true; }, 120));
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") box.querySelector("button")?.click();
+    if (e.key === "Escape") box.hidden = true;
+  });
+  $("alert-max").addEventListener("input", (e) => { e.target.value = e.target.value.replace(/[^\d]/g, "").slice(0, 9); });
+  // the background writes the latest prices back
+  ext.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && changes.priceAlerts) { settings.priceAlerts = changes.priceAlerts.newValue || []; renderAlerts(); }
+  });
 }
 
 // ---------- site access (Firefox can install without host access) ----------
@@ -865,6 +1025,11 @@ async function init() {
   renderCalc();
   checkAccess();
   loadValues();
+  wireAlerts();
+  renderAlerts();
+  renderPerks();
+  refreshPerks();
+  renderGames();
   $("update-btn").addEventListener("click", checkForUpdate);
   renderJustUpdated();
   wireToggles();

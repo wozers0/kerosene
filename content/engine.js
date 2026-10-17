@@ -568,6 +568,15 @@
     setSiteMode(theme?.base || null);
     if (!settings.enabled) return;
 
+    // Hide ads (Supa Games): Octane's sponsor slots are .abp boxes holding a
+    // /user-sponsorship/ frame (skyscrapers beside pages, banners above items)
+    if (settings.hideAds) {
+      addStyle("noads", `
+        .abp, .abp-container, [id$="-Abp"], [id*="-Abp-"], [data-js-adtype="iframead"],
+        iframe[src*="/user-sponsorship/"] { display: none !important; }
+      `, true);
+    }
+
     const bg = settings.bg;
     const bgWanted = bg && bg.mode !== "none" && !(bg.mode === "image" && !bg.image);
     contrastBoost = Boolean(theme?.palette && bgWanted && T.rgbToHsl(T.parseColor(theme.palette.page)).l > 0.5);
@@ -625,7 +634,7 @@
   }
 
   async function init() {
-    settings = await S.load();
+    settings = S.effective(await S.load()); // member-only features off without the perks
     const active = settings.enabled && (settings.theme !== "original" || settings.bg.mode !== "none");
     if (active) cloak();
 
@@ -661,11 +670,11 @@
       }
     }, 1000);
 
-    const WATCHED = ["enabled", "theme", "themeFonts", "seasonal", "bg", "fieldColor", "cssRetry"];
+    const WATCHED = ["enabled", "theme", "themeFonts", "seasonal", "bg", "fieldColor", "cssRetry", "hideAds", "groupAccess"];
     ext.storage.onChanged.addListener(async (changes, area) => {
       if (area !== "local" || !WATCHED.some((k) => k in changes)) return;
       if (changes.cssRetry) cssCache.clear();
-      settings = await S.load();
+      settings = S.effective(await S.load());
       applyAll();
     });
   }
