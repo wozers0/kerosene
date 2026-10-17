@@ -1,11 +1,11 @@
 {
-  "version": "0.4.3",
-  "notes": "Backgrounds show through the whole page under every theme (v0.4.3)",
-  "released": "2026-10-16",
-  "firefox": "https://github.com/wozers0/kerosene/releases/download/v0.4.3/kerosene-firefox.xpi",
-  "chrome": "https://github.com/wozers0/kerosene/releases/download/v0.4.3/kerosene-chrome.zip",
-  "page": "https://github.com/wozers0/kerosene/releases/tag/v0.4.3",
+  "version": "0.5.0",
+  "notes": "Release 0.5.0: Supa Games perks, alerts, favourites bar",
+  "released": "2026-10-17",
+  "firefox": "https://github.com/wozers0/kerosene/releases/download/v0.5.0/kerosene-firefox.xpi",
+  "chrome": "https://github.com/wozers0/kerosene/releases/download/v0.5.0/kerosene-chrome.zip",
+  "page": "https://github.com/wozers0/kerosene/releases/tag/v0.5.0",
   "firefox_xpi": "https://raw.githubusercontent.com/wozers0/kerosene/main/dist/kerosene-firefox.xpi",
-  "firefox_sha256": "446a7206e5917dbb644485a094f1153202db92c6547a28ed99d27592793f40fb",
-  "firefox_size": 101551
+  "firefox_sha256": "1028cc047ad0a2c9f13f30343a3b273d217ddb723e12cc170b13c93f004436e4",
+  "firefox_size": 109836
 }
