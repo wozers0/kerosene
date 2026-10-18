@@ -289,7 +289,7 @@ function renderFonts() {
     tile(fontFile.name, `"${CUSTOM_FAMILY}"`, cur.source === "file", () => setFont({ source: "file", family: fontFile.name }), " custom");
   }
   if (cur.source === "google") previewGoogle(cur.family);
-  if (cur.source === "file") previewFile();
+  if (fontFile) previewFile();
   const preview = $("font-preview");
   preview.style.fontFamily = fontCss(cur);
 }
@@ -342,7 +342,7 @@ async function useFontName(raw) {
   }
   if (installedFont(name)) {
     await setFont({ source: "local", family: name });
-    return fontNote(`Using ${name} from this computer. It only shows on computers that have it.`);
+    return fontNote(`Using ${name} from this computer. It only shows on computers that have it.${IS_FIREFOX ? " If Octane doesn't change, Firefox is hiding it from websites (strict tracking protection or a private window): upload the font file instead." : ""}`);
   }
   fontNote(`Couldn't find "${name}" on Google Fonts or this computer.`, true);
 }
@@ -373,7 +373,6 @@ async function useFontFile(file) {
 }
 
 async function wireFonts() {
-  ({ customFontFile: fontFile = null } = await ext.storage.local.get("customFontFile"));
   renderFonts();
   const section = document.querySelector('details[data-key="fonts"]');
   if (section.open) loadPreviewFonts();
@@ -391,6 +390,8 @@ async function wireFonts() {
     e.target.value = "";
     if (file) useFontFile(file).catch(() => fontNote("Couldn't read that font file.", true));
   });
+  ({ customFontFile: fontFile = null } = await ext.storage.local.get("customFontFile"));
+  if (fontFile) renderFonts();
 }
 
 // ---------- friends ----------
@@ -884,14 +885,16 @@ async function renderPlaytime() {
 
 function wirePlaytime() {
   const reset = $("pt-reset");
-  let armed = null;
+  let armed = null, armedAt = 0;
   reset.addEventListener("click", async () => {
     if (!armed) {
       reset.textContent = "Reset all playtime?";
       reset.classList.add("danger");
+      armedAt = Date.now();
       armed = setTimeout(() => { armed = null; reset.textContent = "Reset"; reset.classList.remove("danger"); }, 4000);
       return;
     }
+    if (Date.now() - armedAt < 600) return; // the second click of a double-click doesn't confirm
     clearTimeout(armed);
     armed = null;
     reset.textContent = "Reset";
@@ -918,9 +921,12 @@ async function renderPerks(justUnlocked = false) {
     d.querySelector(".perk-lock")?.remove();
     d.querySelector(".perk-pill")?.remove();
     if (justUnlocked) d.querySelector(".drop-body").prepend(el("div", { className: "perk-lock unlocked", textContent: "Unlocked. Thanks for joining Supa Games!" }));
-    if (!locked) continue;
-    d.querySelector("summary").append(el("span", { className: "perk-pill", textContent: "Supa Games" }));
-    d.querySelector(".drop-body").prepend(lockCard(groupAccess, viewer));
+    if (locked) {
+      d.querySelector("summary").append(el("span", { className: "perk-pill", textContent: "Supa Games" }));
+      d.querySelector(".drop-body").prepend(lockCard(groupAccess, viewer));
+    }
+    // keyboard too, not just the mouse
+    for (const c of d.querySelector(".drop-body").children) c.inert = locked && !c.classList.contains("perk-lock");
   }
   for (const row of document.querySelectorAll(".row[data-perk]")) {
     row.classList.toggle("locked", locked);
@@ -963,6 +969,7 @@ async function refreshPerks(force = false) {
   const before = settings.perks;
   await ext.runtime.sendMessage({ type: "check-access", force }).catch(() => null);
   settings.perks = (await S.load()).perks;
+  if (settings.perks !== before) renderStatus();
   if (settings.perks !== before || force) renderPerks(settings.perks && !before);
 }
 

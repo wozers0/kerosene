@@ -76,16 +76,19 @@ async function doPoll() {
     } catch { /* keep what the friends list said */ }
   }
   const mine = counting ? presence?.[viewer.id] || null : null;
+  // the last look was recent (no browser restart or sleep in between)
+  const fresh = now - (friendsMeta.checked || 0) <= PLAY_GAP;
   for (const f of Object.values(next)) {
     if (f.error) continue;
+    const prev = friendStatus[f.id];
     if (presence?.[f.id]) {
-      Object.assign(f, presence[f.id], { live: true });
+      Object.assign(f, presence[f.id], { live: true, liveAt: now });
       continue;
     }
-    // no live look this time: someone still online stays in the game they were in
-    const prev = friendStatus[f.id];
-    if (prev?.status === "ingame" && f.status !== "offline") {
-      Object.assign(f, { status: "ingame", location: prev.location, placeId: prev.placeId, universeId: prev.universeId, since: prev.since, live: false });
+    // no live look this time: someone still online stays in the game they were
+    // in, for a few minutes after the last live look
+    if (prev?.status === "ingame" && f.status !== "offline" && prev.liveAt && now - prev.liveAt <= PLAY_GAP) {
+      Object.assign(f, { status: "ingame", location: prev.location, placeId: prev.placeId, universeId: prev.universeId, since: prev.since, liveAt: prev.liveAt, live: false });
     }
   }
   const universes = [...new Set([...Object.values(next), mine].filter((f) => f?.status === "ingame" && f.universeId).map((f) => f.universeId))];
@@ -97,7 +100,7 @@ async function doPoll() {
     if (g?.placeId) f.placeId = g.placeId;
     // how long they've been in this game (as far as Kerosene has seen)
     const prev = friendStatus[f.id];
-    f.since = prev?.status === "ingame" && prev.universeId === f.universeId && prev.since ? prev.since : now;
+    f.since = fresh && prev?.status === "ingame" && prev.universeId === f.universeId && prev.since ? prev.since : now;
   }
   if (mine) {
     await recordPlay(viewer.id, mine, games[mine.universeId], now).catch(() => {});
