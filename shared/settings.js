@@ -17,6 +17,7 @@
     // site
     theme: "original",
     themeFonts: true,
+    customFont: { source: "", family: "" }, // source: google | local | file (Supa Games)
     seasonal: true,
     bg: { mode: "none", preset: "field", image: "", dim: 0.35, blur: 0 },
     // friends
@@ -24,6 +25,7 @@
     friends: [], // extra user IDs to watch (people who aren't on your friends list)
     notifyOnline: true,
     notifyGames: true,
+    trackPlaytime: true,
     // trading
     showValues: true,
     avatarSandbox: true,
@@ -35,8 +37,8 @@
     notifyAfford: true,
   };
 
-  // Themes, backgrounds, hide ads, price alerts and "can I afford it" alerts
-  // are perks for members of this Octane group.
+  // Themes, backgrounds, custom fonts, hide ads, price alerts and "can I
+  // afford it" alerts are perks for members of this Octane group.
   const GROUP = { id: 428, name: "Supa Games", url: `${SITE}/groups/428/supa-games` };
   const ACCESS_TTL = 30 * 60 * 1000;
 
@@ -50,6 +52,7 @@
       ...DEFAULTS, ...rest,
       bg: { ...DEFAULTS.bg, ...(got.bg || {}) },
       calc: { ...DEFAULTS.calc, ...(got.calc || {}) },
+      customFont: { ...DEFAULTS.customFont, ...(got.customFont || {}) },
       perks: hasPerks(groupAccess, viewer),
     };
   }
@@ -58,7 +61,25 @@
   // features fall back to off (the choices stay saved for later).
   function effective(s) {
     if (s.perks) return s;
-    return { ...s, theme: "original", bg: { ...s.bg, mode: "none" }, hideAds: false, notifyAfford: false, priceAlerts: [] };
+    return { ...s, theme: "original", bg: { ...s.bg, mode: "none" }, customFont: { ...DEFAULTS.customFont }, hideAds: false, notifyAfford: false, priceAlerts: [] };
+  }
+
+  // ---------- custom fonts ----------
+  // Font names end up inside CSS and a Google Fonts URL, so only plain names
+  const FONT_NAME = /^[A-Za-z0-9][A-Za-z0-9 \-]{0,47}$/;
+  const cleanFontName = (name) => String(name || "").trim().replace(/\s+/g, " ");
+  const googleFontUrl = (family) =>
+    `https://fonts.googleapis.com/css2?family=${encodeURIComponent(family).replace(/%20/g, "+")}:wght@400;500;600;700&display=swap`;
+  // An uploaded font file, as stored in customFontFile.data
+  const FONT_DATA = /^data:font\/(woff2|woff|ttf|otf);base64,[A-Za-z0-9+/]+=*$/;
+  // the font file's type from its first bytes, or "" if it isn't one
+  function fontFormat(bytes) {
+    const tag = String.fromCharCode(...bytes.slice(0, 4));
+    if (tag === "wOF2") return "woff2";
+    if (tag === "wOFF") return "woff";
+    if (tag === "OTTO") return "otf";
+    if (tag === "true" || (bytes[0] === 0 && bytes[1] === 1 && bytes[2] === 0 && bytes[3] === 0)) return "ttf";
+    return "";
   }
 
   function save(patch) {
@@ -71,16 +92,55 @@
     return res.json();
   }
 
-  // userPresenceType: 0 offline, 1 website, 2 in game, 3 in Studio
+  // Octane's POST endpoints want Roblox's CSRF handshake: a call without the
+  // token is refused with a 403 that carries a fresh one in x-csrf-token
+  let csrfToken = "";
+  async function postJson(url, body) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const res = await fetch(url, {
+        method: "POST",
+        credentials: "include",
+        headers: { Accept: "application/json", "Content-Type": "application/json", ...(csrfToken ? { "X-CSRF-TOKEN": csrfToken } : {}) },
+        body: JSON.stringify(body),
+      });
+      const token = res.headers.get("x-csrf-token");
+      if (res.status === 403 && token && token !== csrfToken && attempt === 0) {
+        csrfToken = token;
+        continue;
+      }
+      if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status}`), { status: res.status });
+      return res.json();
+    }
+  }
+
+  // userPresenceType: 0 offline, 1 website, 2 in game, 3 in Studio.
+  // In a game, lastLocation is just "Playing": the game's name comes from its
+  // universe (see fetchGameStats).
   function presenceOf(p, isOnline) {
     const type = p?.userPresenceType ?? (isOnline ? 1 : 0);
-    if (type === 2) return { status: "ingame", location: p.lastLocation || "a game", placeId: p.rootPlaceId || p.placeId || 0 };
+    if (type === 2) {
+      const named = p.lastLocation && p.lastLocation !== "Playing";
+      return { status: "ingame", location: named ? p.lastLocation : "a game", placeId: p.rootPlaceId || p.placeId || 0, universeId: p.universeId || 0 };
+    }
     if (type === 3) return { status: "studio", location: p.lastLocation || "Studio", placeId: 0 };
     if (type === 1 || isOnline) return { status: "online", location: "", placeId: 0 };
     return { status: "offline", location: "", placeId: 0 };
   }
 
-  // Everyone on a user's friends list, with presence: /friends/v1/users/{id}/friends
+  // Live presence for any users (public): POST /presence/v1/presence/users.
+  // { userId: presence }; the friends list's own presence always says "Website".
+  async function fetchPresence(userIds) {
+    const out = {};
+    for (let i = 0; i < userIds.length; i += 100) {
+      const { userPresences = [] } = await postJson(`${API}/presence/v1/presence/users`, { userIds: userIds.slice(i, i + 100) });
+      for (const p of userPresences) out[p.userId] = presenceOf(p, false);
+    }
+    return out;
+  }
+
+  // Everyone on a user's friends list: /friends/v1/users/{id}/friends. Its
+  // presence field says "Website" for everyone, so only isOnline counts here;
+  // the background fills in real presence from fetchPresence.
   async function fetchFriends(userId) {
     const { data = [] } = await getJson(`${API}/friends/v1/users/${encodeURIComponent(userId)}/friends`);
     return data
@@ -89,7 +149,7 @@
         id: f.id,
         name: f.name,
         displayName: f.displayName || f.name,
-        ...presenceOf(f.presence, f.isOnline),
+        ...presenceOf(null, f.isOnline),
         friend: true,
       }));
   }
@@ -165,12 +225,12 @@
     })).filter((g) => g.universeId && g.placeId);
   }
 
-  // { universeId: { playing, visits } }
+  // { universeId: { name, placeId, playing, visits } }
   async function fetchGameStats(universeIds) {
     const out = {};
     if (!universeIds.length) return out;
     const { data = [] } = await getJson(`${API}/games/v1/games?universeIds=${universeIds.slice(0, 50).join(",")}`);
-    for (const g of data) out[g.id] = { playing: g.playing || 0, visits: g.visits || 0 };
+    for (const g of data) out[g.id] = { name: g.name || "", placeId: g.rootPlaceId || 0, playing: g.playing || 0, visits: g.visits || 0 };
     return out;
   }
 
@@ -241,7 +301,8 @@
 
   globalThis.KeroseneSettings = {
     SITE, API, REPO, VERSION_URL, DEFAULTS, GROUP, ACCESS_TTL, load, save, effective, hasPerks, newerVersion, fetchLatestRelease,
-    fetchFriends, fetchUser, fetchProfile, searchUsers, resolveUser, fetchHeadshots, fetchCollectibles,
+    FONT_NAME, FONT_DATA, cleanFontName, googleFontUrl, fontFormat,
+    fetchPresence, fetchFriends, fetchUser, fetchProfile, searchUsers, resolveUser, fetchHeadshots, fetchCollectibles,
     fetchGroupMember, fetchFavoriteGames, fetchGameStats, fetchGameIcons, fetchLowestResale, fetchBalance,
     fetchTrades, fetchTrade, fetchOwnedAssets,
   };

@@ -1,7 +1,7 @@
 // Background: keeps the friends list fresh (your Octane friends plus any
 // extra watched users), shows the online count on the toolbar badge, sends
-// online / joined-a-game alerts, caches Octomons item values, and fetches
-// cross-origin stylesheets for the theme engine.
+// online / joined-a-game alerts, counts your playtime, caches Octomons item
+// values, and fetches cross-origin stylesheets for the theme engine.
 // Chrome/Brave run this as a service worker; Firefox/Zen load the shared
 // scripts first via manifest "background.scripts".
 if (typeof importScripts === "function") {
@@ -38,8 +38,8 @@ function pollFriends() {
 
 async function doPoll() {
   const settings = await S.load();
-  const { viewer = null, friendStatus = {}, avatars = {}, avatarsAt = 0 } =
-    await ext.storage.local.get(["viewer", "friendStatus", "avatars", "avatarsAt"]);
+  const { viewer = null, friendStatus = {}, friendsMeta = {}, avatars = {}, avatarsAt = 0 } =
+    await ext.storage.local.get(["viewer", "friendStatus", "friendsMeta", "avatars", "avatarsAt"]);
   const next = {};
   let syncError = null;
 
@@ -48,6 +48,10 @@ async function doPoll() {
       for (const f of await S.fetchFriends(viewer.id)) next[f.id] = f;
     } catch (err) {
       syncError = String(err.message || err);
+      // keep this account's last list until the next good sync
+      if (friendsMeta.viewerId === viewer.id) {
+        for (const f of Object.values(friendStatus)) if (f.friend) next[f.id] = { ...f, live: false };
+      }
     }
   }
 
@@ -59,8 +63,49 @@ async function doPoll() {
     }
   }));
 
-  // avatars: refresh hourly, and fetch any we don't have yet
+  // Real presence for everyone, and for you (playtime). The friends list only
+  // knows online/offline; if this fails its online flags stay.
   const ids = Object.keys(next).map(Number);
+  const now = Date.now();
+  let presence = null;
+  const counting = Boolean(viewer?.id && settings.enabled && settings.trackPlaytime);
+  const askIds = [...new Set([...ids, ...(counting ? [Number(viewer.id)] : [])])];
+  if (askIds.length) {
+    try {
+      presence = await S.fetchPresence(askIds);
+    } catch { /* keep what the friends list said */ }
+  }
+  const mine = counting ? presence?.[viewer.id] || null : null;
+  for (const f of Object.values(next)) {
+    if (f.error) continue;
+    if (presence?.[f.id]) {
+      Object.assign(f, presence[f.id], { live: true });
+      continue;
+    }
+    // no live look this time: someone still online stays in the game they were in
+    const prev = friendStatus[f.id];
+    if (prev?.status === "ingame" && f.status !== "offline") {
+      Object.assign(f, { status: "ingame", location: prev.location, placeId: prev.placeId, universeId: prev.universeId, since: prev.since, live: false });
+    }
+  }
+  const universes = [...new Set([...Object.values(next), mine].filter((f) => f?.status === "ingame" && f.universeId).map((f) => f.universeId))];
+  const games = universes.length ? await gameInfo(universes) : {};
+  for (const f of Object.values(next)) {
+    if (f.status !== "ingame") continue;
+    const g = games[f.universeId];
+    if (g?.name) f.location = g.name;
+    if (g?.placeId) f.placeId = g.placeId;
+    // how long they've been in this game (as far as Kerosene has seen)
+    const prev = friendStatus[f.id];
+    f.since = prev?.status === "ingame" && prev.universeId === f.universeId && prev.since ? prev.since : now;
+  }
+  if (mine) {
+    await recordPlay(viewer.id, mine, games[mine.universeId], now).catch(() => {});
+  } else if (viewer?.id && !counting) {
+    await endSession(viewer.id).catch(() => {}); // time while counting is off doesn't count later
+  }
+
+  // avatars: refresh hourly, and fetch any we don't have yet
   const stale = Date.now() - avatarsAt > AVATAR_TTL;
   const missing = stale ? ids : ids.filter((id) => !avatars[id]);
   let avatarMap = avatars;
@@ -73,7 +118,8 @@ async function doPoll() {
       const prev = friendStatus[f.id];
       if (!prev || prev.error || f.error) continue; // first sighting: no alert
       const name = f.displayName || f.name;
-      if (settings.notifyGames && f.status === "ingame" && (prev.status !== "ingame" || prev.placeId !== f.placeId)) {
+      // games only from real presence on both looks (no burst after a failed look)
+      if (settings.notifyGames && f.live && prev.live && f.status === "ingame" && (prev.status !== "ingame" || prev.universeId !== f.universeId)) {
         notify(f.placeId ? `game-${f.placeId}` : `user-${f.id}`, `${name} is playing`, f.location);
       } else if (settings.notifyOnline && prev.status === "offline" && f.status !== "offline") {
         notify(`user-${f.id}`, `${name} is online`, "Your Octane friend just came online.");
@@ -84,7 +130,7 @@ async function doPoll() {
   const checked = Date.now();
   await ext.storage.local.set({
     friendStatus: next,
-    friendsMeta: { checked, syncError, synced: Boolean(settings.syncFriends && viewer?.id) },
+    friendsMeta: { checked, syncError, synced: Boolean(settings.syncFriends && viewer?.id), viewerId: viewer?.id ?? null },
     avatars: avatarMap,
     ...(stale && missing.length ? { avatarsAt: checked } : {}),
   });
@@ -93,6 +139,95 @@ async function doPoll() {
   await ext.action.setBadgeBackgroundColor({ color: "#4fa3e0" });
   await ext.action.setBadgeText({ text: settings.enabled && online ? String(online) : "" });
   return next;
+}
+
+// ---------- games & playtime ----------
+// Game names and root places by universe, cached (presence only says "Playing")
+const GAME_TTL = 6 * 60 * 60 * 1000;
+async function gameInfo(universeIds) {
+  const { gameInfo: cache = {} } = await ext.storage.local.get("gameInfo");
+  const now = Date.now();
+  const missing = universeIds.filter((u) => !cache[u] || now - cache[u].at > GAME_TTL);
+  if (missing.length) {
+    try {
+      const stats = await S.fetchGameStats(missing);
+      for (const u of missing) if (stats[u]) cache[u] = { name: stats[u].name, placeId: stats[u].placeId, at: now };
+      const keep = Object.entries(cache).sort((a, b) => b[1].at - a[1].at).slice(0, 300);
+      await ext.storage.local.set({ gameInfo: Object.fromEntries(keep) });
+      return Object.fromEntries(keep);
+    } catch { /* names are cosmetic */ }
+  }
+  return cache;
+}
+
+// Your playtime: playtime[userId] = { games: { [universeId]: { name, placeId,
+// total, sessions, last } }, days: { "YYYY-MM-DD": ms }, current }. Time
+// between two sightings in the same game counts; a longer gap than PLAY_GAP
+// (browser closed, computer asleep) doesn't, and starts a new session.
+const PLAY_GAP = 5 * 60 * 1000;
+const PLAY_DAYS = 120;
+const dayKey = (t) => {
+  const d = new Date(t);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+// a span of play, split at local midnights
+function addToDays(days, from, to) {
+  while (from < to) {
+    const midnight = new Date(from);
+    midnight.setHours(24, 0, 0, 0);
+    const end = Math.min(to, midnight.getTime());
+    days[dayKey(from)] = (days[dayKey(from)] || 0) + (end - from);
+    from = end;
+  }
+}
+
+// one writer at a time (polls and resets)
+let playtimeLock = Promise.resolve();
+function playtimeTx(fn) {
+  const run = playtimeLock.then(fn, fn);
+  playtimeLock = run.catch(() => {});
+  return run;
+}
+
+function recordPlay(userId, p, game, now) {
+  return playtimeTx(async () => {
+    const { playtime = {} } = await ext.storage.local.get("playtime");
+    const rec = playtime[userId] || { games: {}, days: {}, current: null };
+    const cur = rec.current;
+    if (p.status === "ingame" && p.universeId) {
+      const uid = String(p.universeId);
+      const g = rec.games[uid] ||= { name: "", placeId: 0, total: 0, sessions: 0, last: 0 };
+      g.name = game?.name || g.name || "a game";
+      g.placeId = game?.placeId || p.placeId || g.placeId;
+      if (cur && cur.universeId === uid && now >= cur.last && now - cur.last <= PLAY_GAP) {
+        g.total += now - cur.last;
+        addToDays(rec.days, cur.last, now);
+        cur.last = now;
+        cur.name = g.name;
+      } else {
+        g.sessions += 1;
+        rec.current = { universeId: uid, placeId: g.placeId, name: g.name, start: now, last: now };
+      }
+      g.last = now;
+    } else if (cur) {
+      rec.current = null;
+    } else {
+      return;
+    }
+    const days = Object.keys(rec.days).sort();
+    for (const k of days.slice(0, Math.max(0, days.length - PLAY_DAYS))) delete rec.days[k];
+    playtime[userId] = rec;
+    await ext.storage.local.set({ playtime });
+  });
+}
+
+function endSession(userId) {
+  return playtimeTx(async () => {
+    const { playtime = {} } = await ext.storage.local.get("playtime");
+    if (!playtime[userId]?.current) return;
+    playtime[userId].current = null;
+    await ext.storage.local.set({ playtime });
+  });
 }
 
 // ---------- item values (Octomons) ----------
@@ -531,6 +666,14 @@ ext.notifications.onClicked.addListener((nid) => {
 ext.runtime.onMessage.addListener((msg, _sender, reply) => {
   if (msg?.type === "refresh-friends") {
     pollFriends().then(reply, () => reply(null));
+    return true;
+  }
+  if (msg?.type === "playtime-reset" && msg.userId) {
+    playtimeTx(async () => {
+      const { playtime = {} } = await ext.storage.local.get("playtime");
+      delete playtime[msg.userId];
+      await ext.storage.local.set({ playtime });
+    }).then(() => reply(true), () => reply(false));
     return true;
   }
   if (msg?.type === "check-access") {

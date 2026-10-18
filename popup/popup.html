@@ -80,6 +80,28 @@
         </div>
       </details>
 
+      <!-- Font (Supa Games) -->
+      <details class="drop" data-key="fonts" data-perk>
+        <summary><span class="chev">›</span> Font <span class="meta" id="font-meta"></span></summary>
+        <div class="drop-body">
+          <div class="font-grid" id="font-grid"></div>
+          <div class="field-label">Any Google Font, or one on your computer</div>
+          <form class="inline" id="font-form">
+            <input type="text" id="font-name" class="input" placeholder="e.g. Rubik or Comic Sans MS" maxlength="48" autocomplete="off" spellcheck="false">
+            <button class="btn" type="submit">Use</button>
+          </form>
+          <div class="inline">
+            <label class="btn ghost wide" for="font-file">Upload a font file…</label>
+            <input type="file" id="font-file" accept=".ttf,.otf,.woff,.woff2" hidden>
+          </div>
+          <p class="note" id="font-note"></p>
+          <div class="font-preview" id="font-preview">
+            <b>Kerosene for Octane</b>
+            <span>The quick brown fox trades 1,250 Robux · 0123456789</span>
+          </div>
+        </div>
+      </details>
+
       <!-- Friends -->
       <details class="drop" data-key="friends">
         <summary><span class="chev">›</span> Friends <span class="meta" id="friends-meta"></span></summary>
@@ -100,6 +122,20 @@
           <div class="inline between">
             <span class="note" id="friends-checked"></span>
             <button class="btn ghost small" id="friends-refresh" type="button">Refresh</button>
+          </div>
+        </div>
+      </details>
+
+      <!-- Playtime -->
+      <details class="drop" data-key="playtime">
+        <summary><span class="chev">›</span> Playtime <span class="meta" id="playtime-meta"></span></summary>
+        <div class="drop-body">
+          <div class="pt-now" id="pt-now" hidden></div>
+          <div class="pt-stats" id="pt-stats"></div>
+          <ul class="item-list compact" id="pt-games"></ul>
+          <div class="inline between">
+            <span class="note" id="pt-note"></span>
+            <button class="btn ghost small" id="pt-reset" type="button" hidden>Reset</button>
           </div>
         </div>
       </details>
@@ -223,6 +259,13 @@
               <span class="row-desc">Try on any item in the avatar editor and save outfits</span>
             </span>
             <input type="checkbox" class="toggle" data-setting="avatarSandbox">
+          </label>
+          <label class="row">
+            <span>
+              <span class="row-title">Count playtime</span>
+              <span class="row-desc">Time in each game, checked every minute while your browser is open</span>
+            </span>
+            <input type="checkbox" class="toggle" data-setting="trackPlaytime">
           </label>
           <label class="row">
             <span>

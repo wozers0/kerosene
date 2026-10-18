@@ -67,6 +67,7 @@ function renderStatus() {
   $("bg-meta").textContent = live.bg.mode === "none"
     ? "none"
     : live.bg.mode === "image" ? "custom" : T.BG_PRESETS[live.bg.preset]?.label || "";
+  $("font-meta").textContent = live.customFont.source ? live.customFont.family : "theme font";
   document.body.classList.toggle("off", !settings.enabled);
   $("status-text").textContent = settings.enabled ? "ready" : "disabled";
 }
@@ -179,19 +180,19 @@ function note(text, isErr = false) {
 // the same page opened as a tab.
 const IN_TAB = new URLSearchParams(location.search).has("tab");
 const IS_FIREFOX = /firefox/i.test(navigator.userAgent);
-function pickFile() {
+function pickFile(input = "bg-file", section = "backgrounds") {
   if (IS_FIREFOX && !IN_TAB) {
-    ext.tabs.create({ url: ext.runtime.getURL("popup/popup.html?tab=1") });
+    ext.tabs.create({ url: ext.runtime.getURL(`popup/popup.html?tab=1&open=${section}`) });
     window.close();
     return;
   }
-  $("bg-file").click();
+  $(input).click();
 }
 
 function wireBackgrounds() {
   document.querySelector('label[for="bg-file"]').addEventListener("click", (e) => {
     e.preventDefault();
-    pickFile();
+    pickFile("bg-file", "backgrounds");
   });
   $("bg-url-apply").addEventListener("click", () => {
     const url = $("bg-url").value.trim();
@@ -220,12 +221,185 @@ function wireBackgrounds() {
   $("bg-blur").addEventListener("change", (e) => setBg({ blur: Number(e.target.value) }));
 }
 
+// ---------- custom font (Supa Games) ----------
+// Presets are Google Fonts; you can also name any Google Font or a font on
+// your computer, or upload a font file (kept in customFontFile).
+const FONT_PRESETS = [
+  "Poppins", "Nunito", "Fredoka", "Rubik", "Lexend", "Space Grotesk",
+  "Comic Neue", "Bangers", "Orbitron", "Press Start 2P", "VT323", "Silkscreen",
+];
+const MAX_FONT = 4 * 1024 * 1024;
+const CUSTOM_FAMILY = "Kerosene Custom";
+let fontFile = null; // { name, data, size }
+let fontFace = null; // the uploaded font, loaded into this page for previews
+
+function fontNote(text, isErr = false) {
+  const n = $("font-note");
+  n.textContent = text;
+  n.classList.toggle("err", isErr);
+}
+
+// Google Fonts for the previews, once the Font section is open
+function loadPreviewFonts() {
+  if (document.getElementById("font-previews")) return;
+  const families = FONT_PRESETS.map((f) => `family=${encodeURIComponent(f).replace(/%20/g, "+")}`).join("&");
+  document.head.append(el("link", { id: "font-previews", rel: "stylesheet", href: `https://fonts.googleapis.com/css2?${families}&display=swap` }));
+}
+function previewGoogle(family) {
+  if (FONT_PRESETS.includes(family)) return loadPreviewFonts();
+  let link = document.getElementById("font-preview-link");
+  if (!link) document.head.append(link = el("link", { id: "font-preview-link", rel: "stylesheet" }));
+  link.href = S.googleFontUrl(family);
+}
+async function previewFile() {
+  if (fontFace || !fontFile || !S.FONT_DATA.test(fontFile.data)) return;
+  try {
+    fontFace = await new FontFace(CUSTOM_FAMILY, `url(${fontFile.data})`).load();
+    document.fonts.add(fontFace);
+  } catch { fontFace = null; }
+}
+
+function fontCss(f) {
+  if (f.source === "file") return `"${CUSTOM_FAMILY}", system-ui, sans-serif`;
+  if (f.source && S.FONT_NAME.test(f.family)) return `"${f.family}", system-ui, sans-serif`;
+  return "";
+}
+
+function renderFonts() {
+  const grid = $("font-grid");
+  grid.replaceChildren();
+  const cur = settings.customFont;
+  const tile = (label, family, pressed, onClick, extra = "") => {
+    const b = el("button", { className: `font-tile${extra}`, type: "button", title: label }, [
+      el("span", { className: "font-sample", textContent: "Aa" }),
+      el("span", { className: "font-label", textContent: label }),
+    ]);
+    if (family) b.querySelector(".font-sample").style.fontFamily = family;
+    b.setAttribute("aria-pressed", String(pressed));
+    b.addEventListener("click", onClick);
+    grid.append(b);
+  };
+  tile("Theme font", "", !cur.source, () => setFont({ source: "", family: "" }));
+  for (const name of FONT_PRESETS) {
+    tile(name, `"${name}"`, cur.source === "google" && cur.family === name, () => setFont({ source: "google", family: name }));
+  }
+  if (cur.source && cur.source !== "file" && !(cur.source === "google" && FONT_PRESETS.includes(cur.family))) {
+    tile(cur.family, `"${cur.family}"`, true, () => {}, " custom");
+  }
+  if (fontFile) {
+    tile(fontFile.name, `"${CUSTOM_FAMILY}"`, cur.source === "file", () => setFont({ source: "file", family: fontFile.name }), " custom");
+  }
+  if (cur.source === "google") previewGoogle(cur.family);
+  if (cur.source === "file") previewFile();
+  const preview = $("font-preview");
+  preview.style.fontFamily = fontCss(cur);
+}
+
+async function setFont(f) {
+  await update({ customFont: f });
+  renderFonts();
+  fontNote(f.source ? `Octane now uses ${f.family}.` : "Back to the theme's own font.");
+}
+
+// "press start 2p" -> also try "Press Start 2P"; Google's names are case-sensitive
+function fontNameGuesses(name) {
+  const cap = name.split(" ").map((w) => w[0].toUpperCase() + w.slice(1)).join(" ");
+  const caps = name.split(" ").map((w) => (/\d/.test(w) ? w.toUpperCase() : w[0].toUpperCase() + w.slice(1).toLowerCase())).join(" ");
+  return [...new Set([name, cap, caps])];
+}
+
+async function onGoogleFonts(name) {
+  for (const guess of fontNameGuesses(name)) {
+    try {
+      const res = await fetch(S.googleFontUrl(guess), { credentials: "omit" });
+      if (res.ok) return guess;
+    } catch { /* offline: try this computer */ }
+  }
+  return null;
+}
+
+// A font installed on this computer draws text at a different width than
+// the generic fallbacks do
+function installedFont(name) {
+  const ctx = document.createElement("canvas").getContext("2d");
+  const sample = "mmmmmmmmmwwwwwww iiiiil 0123456789";
+  return ["monospace", "serif", "sans-serif"].some((generic) => {
+    ctx.font = `48px ${generic}`;
+    const base = ctx.measureText(sample).width;
+    ctx.font = `48px "${name}", ${generic}`;
+    return Math.abs(ctx.measureText(sample).width - base) > 0.5;
+  });
+}
+
+async function useFontName(raw) {
+  const name = S.cleanFontName(raw);
+  if (!name) return fontNote("Type a font's name.", true);
+  if (!S.FONT_NAME.test(name)) return fontNote("Font names can use letters, numbers, spaces and dashes.", true);
+  fontNote(`Looking for ${name}…`);
+  const google = await onGoogleFonts(name);
+  if (google) {
+    await setFont({ source: "google", family: google });
+    return fontNote(`Using ${google} from Google Fonts.`);
+  }
+  if (installedFont(name)) {
+    await setFont({ source: "local", family: name });
+    return fontNote(`Using ${name} from this computer. It only shows on computers that have it.`);
+  }
+  fontNote(`Couldn't find "${name}" on Google Fonts or this computer.`, true);
+}
+
+function toBase64(bytes) {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+
+async function useFontFile(file) {
+  if (file.size > MAX_FONT) return fontNote(`That file is ${fmtBytes(file.size)}. Fonts can be up to 4 MB.`, true);
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const format = S.fontFormat(bytes);
+  if (!format) return fontNote("That isn't a font file. Use .ttf, .otf, .woff or .woff2.", true);
+  try {
+    await new FontFace("Kerosene Check", bytes.buffer).load();
+  } catch {
+    return fontNote("Couldn't read that font file.", true);
+  }
+  const name = S.cleanFontName(file.name.replace(/\.[^.]+$/, "")).slice(0, 48) || "Uploaded font";
+  fontFile = { name, data: `data:font/${format};base64,${toBase64(bytes)}`, size: file.size };
+  if (fontFace) document.fonts.delete(fontFace);
+  fontFace = null;
+  await ext.storage.local.set({ customFontFile: fontFile });
+  await setFont({ source: "file", family: name });
+  fontNote(`Using ${name} (${fmtBytes(file.size)}).`);
+}
+
+async function wireFonts() {
+  ({ customFontFile: fontFile = null } = await ext.storage.local.get("customFontFile"));
+  renderFonts();
+  const section = document.querySelector('details[data-key="fonts"]');
+  if (section.open) loadPreviewFonts();
+  section.addEventListener("toggle", () => { if (section.open) loadPreviewFonts(); });
+  $("font-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    useFontName($("font-name").value).catch((err) => fontNote(String(err?.message || err), true));
+  });
+  document.querySelector('label[for="font-file"]').addEventListener("click", (e) => {
+    e.preventDefault();
+    pickFile("font-file", "fonts");
+  });
+  $("font-file").addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (file) useFontFile(file).catch(() => fontNote("Couldn't read that font file.", true));
+  });
+}
+
 // ---------- friends ----------
 const STATUS_ORDER = { ingame: 0, studio: 1, online: 2, offline: 3 };
 
 function statusText(u) {
   if (u.error) return "couldn't check";
-  if (u.status === "ingame") return `playing ${u.location}`;
+  if (u.status === "ingame") return `playing ${u.location}${u.since && Date.now() - u.since >= 60000 ? ` · ${fmtDur(Date.now() - u.since)}` : ""}`;
   if (u.status === "studio") return "in Studio";
   return u.status === "online" ? "online" : "offline";
 }
@@ -617,9 +791,126 @@ function wireCalc() {
   $("calc-clear").addEventListener("click", () => saveCalc({ give: [], get: [], giveRobux: 0, getRobux: 0 }));
 }
 
+// ---------- playtime ----------
+// Counted by the background from your presence (see recordPlay there)
+const PT_SHOWN = 8;
+let ptAll = false;
+const gameIcons = {};
+
+function fmtDur(ms) {
+  const m = Math.floor(ms / 60000);
+  if (m < 1) return ms > 0 ? "<1m" : "0m";
+  const h = Math.floor(m / 60);
+  return h ? `${h}h ${String(m % 60).padStart(2, "0")}m` : `${m}m`;
+}
+function dayKey(t) {
+  const d = new Date(t);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function daysAgo(ts) {
+  const days = Math.round((new Date(dayKey(Date.now())) - new Date(dayKey(ts))) / 86400000);
+  return days <= 0 ? "today" : days === 1 ? "yesterday" : `${days}d ago`;
+}
+
+async function renderPlaytime() {
+  const { playtime = {}, viewer = null } = await ext.storage.local.get(["playtime", "viewer"]);
+  const rec = viewer?.id ? playtime[viewer.id] : null;
+  const now = Date.now();
+  const list = $("pt-games");
+  const games = Object.entries(rec?.games || {}).map(([universeId, g]) => ({ universeId, ...g }))
+    .sort((a, b) => b.total - a.total || b.last - a.last);
+  const today = rec?.days?.[dayKey(now)] || 0;
+  let week = 0;
+  const day = new Date(now);
+  for (let i = 0; i < 7; i++) { // calendar days, so 23- and 25-hour days count once
+    week += rec?.days?.[dayKey(day)] || 0;
+    day.setDate(day.getDate() - 1);
+  }
+  const total = games.reduce((n, g) => n + g.total, 0);
+  const cur = rec?.current && now - rec.current.last < 3 * 60 * 1000 ? rec.current : null;
+
+  const nowBox = $("pt-now");
+  nowBox.hidden = !cur;
+  if (cur) {
+    nowBox.replaceChildren(
+      el("span", { className: "pt-dot" }),
+      el("span", { className: "pt-now-text" }, ["Playing ", el("b", { textContent: cur.name }), ` · ${fmtDur(now - cur.start)}`]),
+    );
+  }
+  const stat = (label, ms) => el("div", {}, [el("span", { textContent: label }), el("b", { textContent: fmtDur(ms) })]);
+  $("pt-stats").replaceChildren(stat("Today", today), stat("Last 7 days", week), stat("All time", total));
+  $("playtime-meta").textContent = cur ? "playing now" : today ? `${fmtDur(today)} today` : "";
+
+  list.replaceChildren();
+  for (const g of ptAll ? games : games.slice(0, PT_SHOWN)) {
+    const thumb = el("div", { className: "item-thumb" });
+    if (gameIcons[g.universeId]) thumb.style.backgroundImage = `url("${gameIcons[g.universeId]}")`;
+    const row = el("li", { className: "item-row clickable", title: `Open ${g.name}` }, [
+      thumb,
+      el("div", { className: "item-text" }, [
+        el("span", { className: "item-name" }, [el("span", { className: "item-name-text", textContent: g.name })]),
+        el("span", { className: "item-sub", textContent: `${g.sessions} session${g.sessions === 1 ? "" : "s"} · ${cur?.universeId === g.universeId ? "playing now" : `last played ${daysAgo(g.last)}`}` }),
+      ]),
+      el("b", { className: "pt-time", textContent: fmtDur(g.total) }),
+    ]);
+    if (g.placeId) row.addEventListener("click", () => openSite(`/games/${g.placeId}/`));
+    list.append(row);
+  }
+  if (games.length > PT_SHOWN) {
+    const more = el("li", { className: "empty-note" }, [iconBtn(ptAll ? "Show fewer" : `Show all ${games.length}`, "", () => { ptAll = !ptAll; renderPlaytime(); }, "btn ghost small")]);
+    list.append(more);
+  }
+  if (!games.length) {
+    list.append(el("li", {
+      className: "empty-note",
+      textContent: !viewer?.id ? "// open octane.wtf while signed in, so Kerosene knows who you are"
+        : !settings.trackPlaytime ? "// counting is off (Settings → Count playtime)"
+        : "// play a game on Octane and it shows up here within a minute",
+    }));
+  }
+  $("pt-note").textContent = games.length ? "Counted every minute while your browser is open." : "";
+  $("pt-reset").hidden = !games.length;
+
+  // icons for the games on show
+  const missing = games.slice(0, ptAll ? 50 : PT_SHOWN).map((g) => g.universeId).filter((u) => !(u in gameIcons));
+  if (missing.length) {
+    for (const u of missing) gameIcons[u] = "";
+    const icons = await S.fetchGameIcons(missing);
+    if (Object.keys(icons).length) {
+      Object.assign(gameIcons, icons);
+      renderPlaytime();
+    }
+  }
+}
+
+function wirePlaytime() {
+  const reset = $("pt-reset");
+  let armed = null;
+  reset.addEventListener("click", async () => {
+    if (!armed) {
+      reset.textContent = "Reset all playtime?";
+      reset.classList.add("danger");
+      armed = setTimeout(() => { armed = null; reset.textContent = "Reset"; reset.classList.remove("danger"); }, 4000);
+      return;
+    }
+    clearTimeout(armed);
+    armed = null;
+    reset.textContent = "Reset";
+    reset.classList.remove("danger");
+    const { viewer = null } = await ext.storage.local.get("viewer");
+    if (viewer?.id) await ext.runtime.sendMessage({ type: "playtime-reset", userId: viewer.id }).catch(() => {});
+    renderPlaytime();
+  });
+  ext.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && (changes.playtime || changes.viewer)) renderPlaytime();
+  });
+  // the "playing now" clock
+  setInterval(() => { if (!$("pt-now").hidden) renderPlaytime(); }, 30000);
+}
+
 // ---------- Supa Games perks ----------
-// Themes, backgrounds, hide ads, price alerts and "can I afford it" alerts
-// unlock for members of the Supa Games group on Octane.
+// Themes, backgrounds, custom fonts, hide ads, price alerts and "can I afford
+// it" alerts unlock for members of the Supa Games group on Octane.
 async function renderPerks(justUnlocked = false) {
   const { groupAccess = null, viewer = null } = await ext.storage.local.get(["groupAccess", "viewer"]);
   const locked = !settings.perks;
@@ -649,7 +940,7 @@ function lockCard(access, viewer) {
     text.textContent = "Open octane.wtf while you're signed in, so Kerosene knows who you are.";
     actions.append(button("Open Octane", () => openSite("/home"), true));
   } else {
-    text.textContent = "Themes, backgrounds, hide ads and price alerts are for members of the Supa Games group. Joining is free.";
+    text.textContent = "Themes, backgrounds, custom fonts, hide ads and price alerts are for members of the Supa Games group. Joining is free.";
     actions.append(
       button("Join Supa Games", () => ext.tabs.create({ url: S.GROUP.url }), true),
       button("I've joined", async (e) => {
@@ -679,14 +970,16 @@ async function refreshPerks(force = false) {
 // ---------- favourite games ----------
 async function renderGames(refresh = false) {
   const bar = $("games-bar");
-  const { viewer = null, favGames = null } = await ext.storage.local.get(["viewer", "favGames"]);
+  const { viewer = null, favGames = null, playtime = {} } = await ext.storage.local.get(["viewer", "favGames", "playtime"]);
+  const played = (viewer?.id && playtime[viewer.id]?.games) || {};
   const draw = (games) => {
     bar.replaceChildren();
     bar.hidden = !games.length;
     for (const g of games) {
       const icon = el("span", { className: "game-icon" });
       if (g.icon) icon.style.backgroundImage = `url("${g.icon}")`;
-      const b = el("button", { className: "game", type: "button", title: `${g.name}${g.playing != null ? ` · ${g.playing} playing` : ""}` }, [
+      const mine = played[g.universeId]?.total;
+      const b = el("button", { className: "game", type: "button", title: `${g.name}${g.playing != null ? ` · ${g.playing} playing` : ""}${mine ? ` · you've played ${fmtDur(mine)}` : ""}` }, [
         icon,
         el("span", { className: "game-name", textContent: g.name }),
         el("span", { className: `game-count${g.playing ? " live" : ""}`, textContent: g.playing != null ? `${g.playing} playing` : "" }),
@@ -971,6 +1264,7 @@ function wireToggles() {
       await update({ [key]: input.checked });
       if (key === "animatedBg") field.setRunning(input.checked);
       if (key === "syncFriends") renderFriends();
+      if (key === "trackPlaytime") renderPlaytime();
     });
   }
 }
@@ -1010,7 +1304,8 @@ async function init() {
   settings = await S.load();
   if (IN_TAB) {
     document.body.classList.add("in-tab");
-    settings.openSections = [...new Set([...settings.openSections, "backgrounds"])];
+    const open = new URLSearchParams(location.search).get("open") || "backgrounds";
+    settings.openSections = [...new Set([...settings.openSections, open])];
   }
   setAccent(settings.fieldColor);
   field = F.create($("field"), { color: settings.fieldColor, animate: settings.animatedBg });
@@ -1021,6 +1316,7 @@ async function init() {
   renderCssNotice();
   renderBackgrounds();
   wireBackgrounds();
+  wireFonts();
   renderViewer();
   renderFriends();
   wireFriends();
@@ -1036,6 +1332,8 @@ async function init() {
   renderPerks();
   refreshPerks();
   renderGames();
+  wirePlaytime();
+  renderPlaytime();
   $("update-btn").addEventListener("click", checkForUpdate);
   renderJustUpdated();
   wireToggles();

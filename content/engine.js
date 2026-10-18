@@ -18,6 +18,7 @@
   let compiled = null; // activeTheme compiled against the detected page colour
   let pageColor = null;
   let buildSeq = 0;
+  let fontSeq = 0;
   let sheetSig = "";
   let bgActive = false;
   let contrastBoost = false; // light theme + custom background
@@ -263,20 +264,64 @@
   }
 
   // ---------- fonts & extras ----------
-  function applyFont(theme) {
-    if (!settings.themeFonts || !theme.font) return;
-    let link = document.getElementById(OWN + "font-link");
+  // The era font, or your own font (Supa Games): a Google Font, one installed
+  // on your computer, or a font file you uploaded.
+  const CUSTOM_FAMILY = "Kerosene Custom";
+  // Font elements survive rebuilds (see teardown): re-adding a stylesheet or a
+  // multi-MB uploaded font makes the page flash its own font while it reloads.
+  const FONT_IDS = ["font-face", "font-link", "era-font-link"].map((k) => OWN + k);
+  let fontFile; // customFontFile, read once and then kept fresh from storage changes
+
+  function fontLink(key, url) {
+    let link = document.getElementById(OWN + key);
     if (!link) {
       link = document.createElement("link");
-      link.id = OWN + "font-link";
+      link.id = OWN + key;
       link.rel = "stylesheet";
       root().appendChild(link);
     }
-    link.href = theme.font.url;
+    if (link.href !== url) link.href = url;
+  }
+
+  function dropFonts(keep = []) {
+    for (const id of FONT_IDS) if (!keep.includes(id)) document.getElementById(id)?.remove();
+  }
+
+  // { family, ids }: the CSS family name and the elements it needs, or null
+  async function customFont(seq) {
+    const f = settings.customFont;
+    if (f?.source === "file") {
+      if (fontFile === undefined) fontFile = (await ext.storage.local.get("customFontFile")).customFontFile || null;
+      if (seq !== fontSeq || !fontFile || !S.FONT_DATA.test(fontFile.data || "")) return null;
+      if (!document.getElementById(OWN + "font-face")) {
+        const format = { woff2: "woff2", woff: "woff", ttf: "truetype", otf: "opentype" }[fontFile.data.slice(10, fontFile.data.indexOf(";"))];
+        addStyle("font-face", `@font-face { font-family: "${CUSTOM_FAMILY}"; src: url("${fontFile.data}") format("${format}"); font-display: swap; }`);
+      }
+      return { family: `"${CUSTOM_FAMILY}"`, ids: [OWN + "font-face"] };
+    }
+    const name = S.cleanFontName(f?.family);
+    if (!S.FONT_NAME.test(name)) return null;
+    if (f.source === "google") {
+      fontLink("font-link", S.googleFontUrl(name));
+      return { family: `"${name}"`, ids: [OWN + "font-link"] };
+    }
+    return f.source === "local" ? { family: `"${name}"`, ids: [] } : null;
+  }
+
+  async function applyFont(theme) {
+    const seq = ++fontSeq;
+    const era = settings.themeFonts && theme?.palette ? theme.font : null;
+    const custom = settings.customFont?.source ? await customFont(seq) : null;
+    if (seq !== fontSeq) return;
+    // the era font also loads under a custom font: it covers the characters the custom one lacks
+    if (era) fontLink("era-font-link", era.url);
+    dropFonts([...(custom?.ids || []), ...(era ? [OWN + "era-font-link"] : [])]);
+    if (!custom && !era) return;
+    const family = custom ? `${custom.family}, ${era ? era.family : "system-ui, 'Segoe UI', sans-serif"}` : era.family;
     const tags = "div,span,p,a,button,input,textarea,select,label,h1,h2,h3,h4,h5,h6,li,td,th,small,strong,b,em,section,article,header,nav,footer,main,aside";
     addStyle("font", `
       html body, html body :is(${tags}):not([class*="icon" i]):not([class*="fa-" i]) {
-        font-family: ${theme.font.family} !important;
+        font-family: ${family} !important;
       }
     `);
   }
@@ -531,8 +576,9 @@
   // ---------- lifecycle ----------
   function teardown() {
     buildSeq++;
+    fontSeq++;
     for (const el of document.querySelectorAll(`[id^="${OWN}"]`)) {
-      if (el.id !== OWN + "cloak") el.remove();
+      if (el.id !== OWN + "cloak" && !FONT_IDS.includes(el.id)) el.remove(); // applyFont keeps or drops the fonts
     }
     field?.destroy();
     field = null;
@@ -566,7 +612,11 @@
     applySeasonal();
     const theme = settings.enabled ? T.THEMES[settings.theme] : null;
     setSiteMode(theme?.base || null);
-    if (!settings.enabled) return;
+    if (!settings.enabled) {
+      fontSeq++;
+      dropFonts();
+      return;
+    }
 
     // Hide ads (Supa Games): Octane's sponsor slots are .abp boxes holding a
     // /user-sponsorship/ frame (skyscrapers beside pages, banners above items)
@@ -580,9 +630,9 @@
     const bg = settings.bg;
     const bgWanted = bg && bg.mode !== "none" && !(bg.mode === "image" && !bg.image);
     contrastBoost = Boolean(theme?.palette && bgWanted && T.rgbToHsl(T.parseColor(theme.palette.page)).l > 0.5);
+    applyFont(theme);
     if (theme?.palette) {
       activeTheme = theme;
-      applyFont(theme);
       addStyle("page", `body { background-color: ${theme.palette.page} !important; }`, true);
       // default for text no stylesheet colours (normal priority: page CSS still wins)
       addStyle("base", `body { color: ${theme.palette.text}; }`);
@@ -670,10 +720,14 @@
       }
     }, 1000);
 
-    const WATCHED = ["enabled", "theme", "themeFonts", "seasonal", "bg", "fieldColor", "cssRetry", "hideAds", "groupAccess"];
+    const WATCHED = ["enabled", "theme", "themeFonts", "customFont", "customFontFile", "seasonal", "bg", "fieldColor", "cssRetry", "hideAds", "groupAccess"];
     ext.storage.onChanged.addListener(async (changes, area) => {
       if (area !== "local" || !WATCHED.some((k) => k in changes)) return;
       if (changes.cssRetry) cssCache.clear();
+      if (changes.customFontFile) {
+        fontFile = changes.customFontFile.newValue || null;
+        document.getElementById(OWN + "font-face")?.remove();
+      }
       settings = S.effective(await S.load());
       applyAll();
     });

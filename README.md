@@ -4,10 +4,12 @@ Fuel for [Octane](https://octane.wtf). Kerosene is a browser extension for the O
 
 ## Features
 
-**Supa Games perks.** Themes, backgrounds, hide ads, price alerts and "can I afford it" alerts are for members of the [Supa Games](https://octane.wtf/groups/428/supa-games) group on Octane (joining is free). Everything else is for everyone.
+**Supa Games perks.** Themes, backgrounds, custom fonts, hide ads, price alerts and "can I afford it" alerts are for members of the [Supa Games](https://octane.wtf/groups/428/supa-games) group on Octane (joining is free). Everything else is for everyone.
 
 - **Era themes for octane.wtf** — Classic 2018 (light, blue top bar, Source Sans), Dark 2020 (Roblox 2020 dark, Gotham) and Modern 2026 (near-black, soft corners, Inter). Themes switch Octane's own light/dark mode, recolour its stylesheets and add era touches; going back to Original restores your own light/dark setting.
 - **Custom backgrounds** — the animated character field, Baseplate, Midnight, Aurora, Sunset and Ocean presets, or your own image / GIF / video (link or upload), with dim and blur sliders.
+- **Custom font** *(Supa Games)*: pick a font for all of Octane: one of the presets, any Google Font or a font on your computer by name, or upload a font file (.ttf, .otf, .woff, .woff2).
+- **Playtime**: how long you've played each game, today, over the last 7 days and in total, plus what you're playing right now. Kerosene checks your status every minute while your browser is open, so time with the browser closed isn't counted.
 - **Item values** from [Octomons](https://octomons.wtf) — value, demand, trend, projected and rare badges on limited item cards; a value panel on every limited's item page; total value on limiteds pages.
 - **Trade helpers** — Value and RAP totals for both sides of every trade (and while you build one), plus a **WIN / LOSS / FAIR** banner with warnings for projected items, low demand, and rares you're giving away. Robux is counted after Octane's 30% fee.
 - **Avatar Sandbox** — a **Sandbox** tab in Octane's avatar editor (octane.wtf/my/avatar) that looks like the rest of the editor but lists every item in Octane's catalog, on sale or not, by category, with search and sorting. The price sits under every item (cheapest reseller for limiteds), click to try it on (the preview renders it on your own avatar, in 2D or 3D), and the outfit's total shows next to your balance with **how much Robux you still need**. Save as many outfits as you like; they're stored locally, each with its price and what you'd still need.
@@ -18,7 +20,7 @@ Fuel for [Octane](https://octane.wtf). Kerosene is a browser extension for the O
 - **Favourite games bar**: your Octane favourites at the top of the popup with live player counts; one click opens the game.
 - **Trade calculator** in the popup — add items to each side by name or acronym, add Robux, see the verdict.
 - **Your limiteds' worth** — item count, total value and RAP in the popup.
-- **Friends** — syncs your Octane friends list automatically, with avatars and live status: online, in Studio, or *playing &lt;game&gt;* with a Join button. Watch extra people by username or ID. Toolbar badge shows how many are online; optional alerts when a friend comes online or starts a game.
+- **Friends** — syncs your Octane friends list automatically, with avatars and live status: online, in Studio, or *playing &lt;game&gt;* (and for how long) with a Join button. Watch extra people by username or ID. Toolbar badge shows how many are online; optional alerts when a friend comes online or starts a game.
 - **User lookup** by username or ID, **quick links**, and a **seasonal toggle** for Octane's Halloween decorations.
 - **Interactive popup** — OLED-black background of drifting characters that light up around your cursor; click for a ripple.
 

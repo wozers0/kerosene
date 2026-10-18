@@ -561,6 +561,58 @@ body.off .dot { background: var(--muted); box-shadow: none; }
 .game-count.live { color: var(--ok); }
 .game-count.live::before { content: "\25CF "; font-size: 7px; vertical-align: 1px; }
 
+/* ---------- custom font ---------- */
+.font-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.font-tile {
+  all: unset;
+  cursor: pointer;
+  min-width: 0;
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
+  padding: 6px 4px 5px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.025);
+  transition: border-color 0.15s;
+}
+.font-tile:hover { border-color: rgba(255, 255, 255, 0.25); }
+.font-tile:focus-visible { outline: 1px solid rgb(var(--accent)); }
+.font-tile[aria-pressed="true"] { border-color: rgb(var(--accent)); box-shadow: 0 0 0 1px rgb(var(--accent)); }
+.font-sample { font-size: 17px; line-height: 1.2; color: var(--text); }
+.font-label { display: block; max-width: 100%; font-size: 9px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.font-tile.custom .font-label { color: rgb(var(--accent)); }
+.font-preview {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px dashed var(--line);
+  background: rgba(255, 255, 255, 0.02);
+}
+.font-preview b { font-size: 14px; }
+.font-preview span { color: var(--muted); font-size: 11px; }
+
+/* ---------- playtime ---------- */
+.pt-now {
+  display: flex; align-items: center; gap: 7px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  border: 1px solid rgba(111, 191, 255, 0.35);
+  background: rgba(111, 191, 255, 0.08);
+  font-size: 11px;
+}
+.pt-now[hidden] { display: none; }
+.pt-now b { color: #6fbfff; }
+.pt-now-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pt-dot { flex-shrink: 0; width: 7px; height: 7px; border-radius: 50%; background: #6fbfff; box-shadow: 0 0 6px #6fbfff; animation: blink 1.6s ease-in-out infinite; }
+.pt-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.pt-stats div { padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.025); }
+.pt-stats span { display: block; color: var(--muted); font-size: 9.5px; }
+.pt-stats b { font-size: 13px; }
+.pt-time { flex-shrink: 0; font-size: 11px; color: rgb(var(--accent)); }
+.item-row.clickable { cursor: pointer; transition: border-color 0.15s; }
+.item-row.clickable:hover { border-color: rgba(var(--accent), 0.45); }
+.btn.danger { border-color: rgba(229, 120, 109, 0.5); color: #e5786d; }
+.btn[hidden] { display: none; }
+
 /* ---------- Supa Games perks ---------- */
 .perk-pill {
   margin-left: 6px; padding: 1px 6px; border-radius: 6px;
@@ -658,6 +710,7 @@ body.refreshed .shell { animation: refresh-in 0.7s cubic-bezier(0.2, 0.8, 0.2, 1
 @media (prefers-reduced-motion: reduce) {
   .cursor, .drop-body { animation: none; }
   .bg-tile { animation: none !important; } /* the Aurora preview animates inline */
+  .pt-dot { animation: none; }
   .update-btn[data-state="checking"] svg { animation: none; opacity: 0.6; }
   .update-btn[data-state="updating"] { animation: none; }
   .update-screen, .us-card, .us-logo .us-spin, .us-bar.busy span, .update-screen.out, body.refreshed .shell { animation: none !important; }
