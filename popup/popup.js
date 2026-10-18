@@ -69,7 +69,6 @@ function renderStatus() {
     : live.bg.mode === "image" ? "custom" : T.BG_PRESETS[live.bg.preset]?.label || "";
   $("font-meta").textContent = live.customFont.source ? live.customFont.family : "theme font";
   document.body.classList.toggle("off", !settings.enabled);
-  $("status-text").textContent = settings.enabled ? "ready" : "disabled";
 }
 
 // ---------- themes ----------

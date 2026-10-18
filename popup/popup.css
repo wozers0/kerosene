@@ -78,7 +78,6 @@ h1 {
   letter-spacing: 0.4px;
   color: rgb(var(--accent));
 }
-.cursor { animation: blink 1s steps(1) infinite; }
 .sub { margin: 2px 0 0; color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sub b { color: var(--text); font-weight: 600; }
 
@@ -531,10 +530,7 @@ html:has(body.in-tab) { width: auto; }
 .about { margin: 2px; color: var(--muted); line-height: 1.5; }
 
 /* ---------- footer ---------- */
-.foot { display: flex; justify-content: space-between; color: var(--muted); font-size: 10.5px; padding: 0 4px; }
-.status { display: flex; align-items: center; gap: 6px; }
-.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 6px var(--ok); }
-body.off .dot { background: var(--muted); box-shadow: none; }
+.foot { display: flex; justify-content: flex-end; color: var(--muted); font-size: 10.5px; padding: 0 4px; }
 
 /* ---------- favourite games bar ---------- */
 .games-bar { display: flex; gap: 6px; overflow-x: auto; padding: 2px 1px 4px; scrollbar-width: thin; }
@@ -708,7 +704,7 @@ body.refreshed .shell { animation: refresh-in 0.7s cubic-bezier(0.2, 0.8, 0.2, 1
 @keyframes slide { from { opacity: 0; transform: translateY(-4px); } }
 
 @media (prefers-reduced-motion: reduce) {
-  .cursor, .drop-body { animation: none; }
+  .drop-body { animation: none; }
   .bg-tile { animation: none !important; } /* the Aurora preview animates inline */
   .pt-dot { animation: none; }
   .update-btn[data-state="checking"] svg { animation: none; opacity: 0.6; }
