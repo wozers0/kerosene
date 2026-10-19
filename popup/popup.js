@@ -1262,12 +1262,47 @@ async function renderJustUpdated() {
   screen.hide();
 }
 
+// ---------- anonymous usage stats (opt-in) ----------
+// Asked once; the background sends nothing until the answer is yes. Firefox
+// 140+ also has its own switch for it, which must be asked for from this click.
+function askFirefoxForStats() {
+  if (!IS_FIREFOX) return Promise.resolve(true);
+  try {
+    return browser.permissions.request({ data_collection: ["technicalAndInteraction"] }).catch(() => true);
+  } catch {
+    return Promise.resolve(true); // older Firefox: this question is the consent
+  }
+}
+
+async function answerStats(yes) {
+  const firefox = yes ? askFirefoxForStats() : null; // first, while the click still counts
+  await update({ shareStats: yes });
+  renderStatsAsk();
+  if (firefox && !(await firefox)) {
+    await update({ shareStats: false });
+    renderStatsAsk();
+  }
+  const toggle = document.querySelector('[data-setting="shareStats"]');
+  if (toggle) toggle.checked = settings.shareStats === true;
+}
+
+function renderStatsAsk() {
+  $("stats-ask").hidden = settings.shareStats !== null || IN_TAB;
+}
+
+function wireStats() {
+  $("stats-yes").addEventListener("click", () => answerStats(true));
+  $("stats-no").addEventListener("click", () => answerStats(false));
+  renderStatsAsk();
+}
+
 // ---------- settings ----------
 function wireToggles() {
   for (const input of document.querySelectorAll("[data-setting]")) {
     const key = input.dataset.setting;
     input.checked = Boolean(settings[key]);
     input.addEventListener("change", async () => {
+      if (key === "shareStats") return answerStats(input.checked);
       await update({ [key]: input.checked });
       if (key === "animatedBg") field.setRunning(input.checked);
       if (key === "syncFriends") renderFriends();
@@ -1348,6 +1383,7 @@ async function init() {
   });
   renderJustUpdated();
   wireToggles();
+  wireStats();
   renderSwatches();
   wireSections();
 }

@@ -417,6 +417,132 @@ async function buildWidget(force) {
   return snap;
 }
 
+// ---------- anonymous usage stats (only after the user says yes) ----------
+// Once a day, for dad's dashboard: browser, OS, Kerosene version, theme and
+// which features are on, under a random install id. Never the Octane account.
+// The server's address comes from stats.json in the repo (see stats/).
+const STATS_EVERY = 24 * 3600000;
+const STATS_RETRY = 3600000;
+const STATS_CONFIG = `https://raw.githubusercontent.com/${S.REPO}/main/stats.json`;
+const STATS_URL = /^(https:\/\/[a-z0-9.-]+|http:\/\/(127\.0\.0\.1|localhost)(:\d+)?)$/i;
+
+async function statsUrl() {
+  const { statsConfig = null } = await ext.storage.local.get("statsConfig");
+  if (statsConfig && Date.now() - statsConfig.at < 12 * 3600000) return statsConfig.url;
+  try {
+    const res = await fetch(`${STATS_CONFIG}?t=${Date.now()}`, { cache: "no-store", credentials: "omit" });
+    const data = res.ok ? await res.json() : null;
+    const url = STATS_URL.test(String(data?.url || "")) ? String(data.url) : "";
+    await ext.storage.local.set({ statsConfig: { url, at: Date.now() } });
+    return url;
+  } catch {
+    return statsConfig?.url || "";
+  }
+}
+
+// Firefox keeps its own switch for data sharing (Firefox 140+); older ones don't have it
+async function firefoxAllowsStats() {
+  if (!IS_FIREFOX) return true;
+  try {
+    return await browser.permissions.contains({ data_collection: ["technicalAndInteraction"] });
+  } catch {
+    return true;
+  }
+}
+
+async function browserName() {
+  if (IS_FIREFOX) {
+    const name = (await browser.runtime.getBrowserInfo().catch(() => null))?.name || "";
+    return /zen/i.test(name) ? "zen" : /firefox/i.test(name) ? "firefox" : "other";
+  }
+  if (navigator.brave) return "brave";
+  const ua = navigator.userAgent;
+  if (/Edg\//.test(ua)) return "edge";
+  if (/OPR\//.test(ua)) return "opera";
+  return "chrome";
+}
+
+function osName() {
+  const p = String(navigator.userAgentData?.platform || navigator.platform || navigator.userAgent || "").toLowerCase();
+  if (/win/.test(p)) return "windows";
+  if (/android/.test(p)) return "android";
+  if (/cros|chrome ?os/.test(p)) return "chromeos";
+  if (/mac/.test(p)) return "mac";
+  if (/linux/.test(p)) return "linux";
+  return "other";
+}
+
+// Everything a report holds (the server keeps only these fields)
+async function statsReport(s, id) {
+  const live = S.effective(s);
+  const bg = live.bg.mode === "none" ? "none"
+    : live.bg.mode === "preset" ? `preset:${live.bg.preset}`
+    : /^data:video|\.(mp4|webm)(\?|#|$)/i.test(live.bg.image || "") ? "video" : "image";
+  return {
+    id,
+    v: ext.runtime.getManifest().version,
+    browser: await browserName(),
+    os: osName(),
+    theme: live.theme,
+    bg,
+    font: live.customFont?.source || "theme",
+    color: s.fieldColor,
+    perks: Boolean(s.perks),
+    features: {
+      values: Boolean(s.showValues),
+      sandbox: Boolean(s.avatarSandbox),
+      playtime: Boolean(s.trackPlaytime),
+      tradeAlerts: Boolean(s.notifyTrades),
+      friendAlerts: Boolean(s.notifyOnline || s.notifyGames),
+      syncFriends: Boolean(s.syncFriends),
+      hideAds: Boolean(live.hideAds),
+      priceAlerts: live.priceAlerts.length > 0,
+      afford: Boolean(live.notifyAfford),
+      seasonal: Boolean(s.seasonal),
+      animatedBg: Boolean(s.animatedBg),
+      themeFonts: Boolean(s.themeFonts),
+    },
+  };
+}
+
+let statsRun = null;
+function sendStats(force = false) {
+  statsRun ??= doSendStats(force).finally(() => { statsRun = null; });
+  return statsRun;
+}
+
+async function doSendStats(force) {
+  const s = await S.load();
+  if (s.shareStats !== true || !(await firefoxAllowsStats())) return { sent: false, why: "not allowed" };
+  const { statsTimers = {}, statsId = null } = await ext.storage.local.get(["statsTimers", "statsId"]);
+  const now = Date.now();
+  if (!force && now < (statsTimers.next || 0)) return { sent: false, why: "not yet" };
+  const url = await statsUrl();
+  if (!url) return { sent: false, why: "no stats server yet" };
+  const id = statsId || crypto.randomUUID();
+  if (!statsId) await ext.storage.local.set({ statsId: id });
+  // the next try is booked first, so a failure waits an hour instead of every minute
+  await ext.storage.local.set({ statsTimers: { ...statsTimers, next: now + STATS_RETRY } });
+  const res = await fetch(`${url}/v1/ping`, {
+    method: "POST",
+    credentials: "omit",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(await statsReport(s, id)),
+  });
+  if (!res.ok) return { sent: false, why: `HTTP ${res.status}` };
+  await ext.storage.local.set({ statsTimers: { sent: now, next: now + STATS_EVERY } });
+  return { sent: true };
+}
+
+// Saying no later also removes this install's report from the server
+async function forgetStats() {
+  const { statsId = null } = await ext.storage.local.get("statsId");
+  if (!statsId) return;
+  const url = await statsUrl();
+  if (url) await fetch(`${url}/v1/forget`, { method: "POST", credentials: "omit", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: statsId }) }).catch(() => {});
+  await ext.storage.local.remove(["statsTimers"]);
+}
+
 // ---------- item values (Octomons) ----------
 let valuesLoading = null;
 async function getValues(force = false) {
@@ -644,6 +770,7 @@ function onTick() {
   // alerts after the friends poll, not at the same moment
   const friends = pollFriends().catch(() => {});
   alerting ??= friends.then(pollAlerts).catch(() => {}).then(() => pollAdmin()).catch(() => {}).finally(() => { alerting = null; });
+  sendStats().catch(() => {});
 }
 
 // ---------- updates ----------
@@ -835,6 +962,10 @@ ext.alarms.onAlarm.addListener((a) => { if (a.name === ALARM) onTick(); });
 ext.storage.onChanged.addListener((changes, area) => {
   if (area === "local" && (changes.viewer || changes.syncFriends || changes.friends)) pollFriends();
   if (area === "local" && changes.viewer && changes.viewer.newValue?.id !== changes.viewer.oldValue?.id) checkAccess(true);
+  if (area === "local" && changes.shareStats) {
+    if (changes.shareStats.newValue === true) sendStats(true).catch(() => {});
+    else if (changes.shareStats.oldValue === true) forgetStats().catch(() => {});
+  }
 });
 
 ext.notifications.onClicked.addListener((nid) => {
@@ -861,6 +992,10 @@ ext.runtime.onMessage.addListener((msg, _sender, reply) => {
       delete playtime[msg.userId];
       await ext.storage.local.set({ playtime });
     }).then(() => reply(true), () => reply(false));
+    return true;
+  }
+  if (msg?.type === "stats-config") {
+    statsUrl().then((url) => reply({ url }), () => reply({ url: "" }));
     return true;
   }
   if (msg?.type === "admin-widget") {

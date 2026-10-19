@@ -41,7 +41,8 @@ def firefox_manifest(manifest):
             "id": "kerosene@wozers0",
             "strict_min_version": "128.0",
             "update_url": UPDATE_URL,
-            "data_collection_permissions": {"required": ["none"]},
+            # usage stats are opt-in: Firefox asks before any are sent
+            "data_collection_permissions": {"required": ["none"], "optional": ["technicalAndInteraction"]},
         }
     }
     return m

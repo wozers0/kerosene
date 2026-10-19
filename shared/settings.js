@@ -26,6 +26,8 @@
     notifyOnline: true,
     notifyGames: true,
     trackPlaytime: true,
+    // anonymous usage stats: null until the user answers the popup's question
+    shareStats: null,
     // trading
     showValues: true,
     avatarSandbox: true,

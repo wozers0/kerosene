@@ -1,0 +1,72 @@
+# Deploys the anonymous usage-stats server (stats/worker.js) to Cloudflare
+# Workers and publishes its address in stats.json, where Kerosene finds it.
+# Only installs whose user said yes ever report; see the README's Privacy part.
+#
+# One-time setup (repo Settings > Secrets and variables > Actions):
+#   CLOUDFLARE_API_TOKEN   an API token made from the "Edit Cloudflare Workers" template
+#   CLOUDFLARE_ACCOUNT_ID  your Cloudflare account ID (dashboard > Workers & Pages, right side)
+#   STATS_KEY              any long random password; type the same one into the admin dashboard
+# Then run this workflow once from the Actions tab (it also runs when stats/ changes).
+name: Stats server
+
+on:
+  push:
+    branches: [main]
+    paths: ["stats/**", ".github/workflows/stats.yml", "scripts/stats_deploy.py"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency: stats
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      STATS_KEY: ${{ secrets.STATS_KEY }}
+    steps:
+      - name: Wait for the Cloudflare secrets
+        if: env.CF_TOKEN == '' || env.CF_ACCOUNT == '' || env.STATS_KEY == ''
+        run: echo "::notice::Add CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID and STATS_KEY to deploy the stats server."
+
+      - uses: actions/checkout@v4
+        if: env.CF_TOKEN != '' && env.CF_ACCOUNT != '' && env.STATS_KEY != ''
+
+      - uses: actions/setup-node@v4
+        if: env.CF_TOKEN != '' && env.CF_ACCOUNT != '' && env.STATS_KEY != ''
+        with:
+          node-version: 20
+
+      - name: Storage and address
+        id: cf
+        if: env.CF_TOKEN != '' && env.CF_ACCOUNT != '' && env.STATS_KEY != ''
+        run: python3 scripts/stats_deploy.py
+
+      - name: Deploy the Worker
+        if: env.CF_TOKEN != '' && env.CF_ACCOUNT != '' && env.STATS_KEY != ''
+        working-directory: stats
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          npx --yes wrangler@3 deploy
+          printf '%s' "$STATS_KEY" | npx --yes wrangler@3 secret put STATS_KEY
+
+      - name: Publish the address for Kerosene
+        if: env.CF_TOKEN != '' && env.CF_ACCOUNT != '' && env.STATS_KEY != ''
+        env:
+          URL: ${{ steps.cf.outputs.url }}
+        run: |
+          printf '{\n  "url": "%s"\n}\n' "$URL" > stats.json
+          if git ls-files --error-unmatch stats.json >/dev/null 2>&1 && git diff --quiet -- stats.json; then
+            echo "stats.json unchanged"; exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add stats.json
+          git commit -m "Stats server address [skip ci]"
+          git pull --rebase origin main
+          git push origin HEAD:main
