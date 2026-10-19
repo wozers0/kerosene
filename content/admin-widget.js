@@ -11,9 +11,9 @@
 
   const CSS = `
     :host { all: initial; }
-    .wrap { position: fixed; left: 16px; bottom: 16px; z-index: 2147483000; display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
+    .wrap { position: fixed; left: 16px; bottom: 16px; z-index: 2147483000; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; pointer-events: none;
       font-family: "Josefin Sans", "Avenir Next", "Segoe UI", system-ui, sans-serif; color: #f2f2f2; -webkit-font-smoothing: antialiased; }
-    .card { width: 318px; padding: 16px 16px 14px; border-radius: 16px; background: rgba(28, 28, 30, 0.94); border: 1px solid rgba(255, 255, 255, 0.06);
+    .card { pointer-events: auto; width: 318px; padding: 16px 16px 14px; border-radius: 16px; background: rgba(28, 28, 30, 0.94); border: 1px solid rgba(255, 255, 255, 0.06);
       box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55); backdrop-filter: blur(14px); display: flex; flex-direction: column; gap: 14px;
       transform-origin: bottom left; transition: transform .22s ease, opacity .22s ease, visibility 0s; }
     .collapsed .card { opacity: 0; transform: scale(.92) translateY(8px); visibility: hidden; position: absolute; bottom: 38px;
@@ -43,15 +43,16 @@
     .tile b { font-size: 21px; font-weight: 700; }
     .tile span { font-size: 10.5px; font-weight: 700; letter-spacing: 1.6px; color: #a5a5aa; text-transform: uppercase; }
     .open { padding: 14px 0 11px; border-radius: 12px; background: #2a2a2d; color: #fff; border: 0; font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; }
-    .toggle { width: 30px; height: 30px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, .08); background: rgba(28, 28, 30, .94); color: #d0d0d4;
+    .toggle { pointer-events: auto; width: 30px; height: 30px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, .08); background: rgba(28, 28, 30, .94); color: #d0d0d4;
       display: grid; place-items: center; cursor: pointer; box-shadow: 0 6px 18px rgba(0, 0, 0, .45); padding: 0; }
     .toggle svg { transition: transform .22s ease; }
     .collapsed .toggle svg { transform: rotate(180deg); }
     .stale { opacity: .55; }
-    @media (prefers-reduced-motion: reduce) { .card, .fill, .toggle svg { transition: none; } }
+    @media (prefers-reduced-motion: reduce) { .card, .collapsed .card, .fill, .toggle svg { transition: none; } }
   `;
 
-  let host = null, root = null, timer = null;
+  const STALE = 5 * 60 * 1000;
+  let host = null, root = null, timer = null, last = null;
 
   function mount() {
     if (host) return;
@@ -133,10 +134,15 @@
     el.querySelector(".pct").textContent = value == null ? "—" : `${value}%`;
   }
 
+  // dim when Octane hasn't answered for a while (checked again on every tick)
+  function markStale() {
+    root?.querySelector(".card").classList.toggle("stale", !last?.dataAt || Date.now() - last.dataAt > STALE);
+  }
+
   function render(snap) {
     if (!root) return;
-    const card = root.querySelector(".card");
-    card.classList.toggle("stale", !snap || Date.now() - snap.at > 5 * 60 * 1000);
+    last = snap;
+    markStale();
     if (!snap) return;
     root.querySelector(".total").textContent = snap.total == null ? "—" : String(snap.total);
 
@@ -196,7 +202,7 @@
     setCollapsed(got.adminWidgetCollapsed);
     render(got.adminWidget);
     if (!got.adminWidget || Date.now() - got.adminWidget.at > ASK_EVERY) ask();
-    timer ??= setInterval(() => ask(), ASK_EVERY);
+    timer ??= setInterval(() => { markStale(); ask(); }, ASK_EVERY);
   }
 
   ext.storage.onChanged.addListener((changes, area) => {
