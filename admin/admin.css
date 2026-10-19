@@ -146,6 +146,23 @@ button.hbar:hover .hbar-label { color: var(--text); }
 .legend b { color: var(--text); }
 .swatch { width: 10px; height: 10px; border-radius: 3px; }
 
+/* ---------- Kerosene users ---------- */
+.mini-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; margin-bottom: 14px; }
+.mini-kpis div { padding: 9px 12px; border-radius: 10px; background: var(--surface-2); }
+.mini-kpis span { display: block; color: var(--muted); font-size: 11.5px; }
+.mini-kpis b { font-size: 20px; font-weight: 600; }
+.users-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 24px; }
+.users-grid .wide-cell { grid-column: 1 / -1; }
+@media (max-width: 880px) { .users-grid { grid-template-columns: minmax(0, 1fr); } }
+.sub-chart { position: relative; margin: 0; min-width: 0; }
+.sub-chart figcaption { display: block; margin-bottom: 8px; }
+.sub-chart h4 { margin: 0; font-size: 12.5px; font-weight: 600; color: var(--text-2); }
+.sub-chart p { margin: 1px 0 0; color: var(--muted); font-size: 11.5px; }
+.users-msg { color: var(--text-2); font-size: 12.5px; line-height: 1.55; }
+.users-msg code { font-family: var(--mono); font-size: 11.5px; color: var(--text); background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
+.users-msg ol { margin: 6px 0 0; padding-left: 18px; }
+#stats-key-form { margin-top: 10px; max-width: 520px; }
+
 /* ---------- members table ---------- */
 .tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .tools .input[type="search"] { width: 200px; }

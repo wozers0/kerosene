@@ -559,6 +559,128 @@ function renderUpdated() {
   $("updated").textContent = liveAt ? `Updated ${timeAgo(liveAt)}` : "";
 }
 
+// ---------- Kerosene users (opt-in anonymous stats) ----------
+// Read from the stats server (stats/worker.js) with the STATS_KEY dad set up.
+// Only installs whose user said yes ever report, so these are shares of them.
+const BROWSERS = { // fixed colour per browser, so a colour always means the same browser
+  chrome: ["Chrome", "#3987e5"], brave: ["Brave", "#d95926"], edge: ["Edge", "#199e70"], opera: ["Opera", "#c98500"],
+  firefox: ["Firefox", "#d55181"], zen: ["Zen", "#008300"], other: ["Other", "#4a4945"],
+};
+const THEME_NAMES = { original: "Original", 2018: "Classic 2018", 2020: "Dark 2020", 2026: "Modern 2026" };
+const BG_NAMES = { none: "None", image: "Own image", video: "Own video", field: "Character field", baseplate: "Baseplate", midnight: "Midnight", aurora: "Aurora", sunset: "Sunset", ocean: "Ocean" };
+const FONT_NAMES = { theme: "Theme font", preset: "Preset", google: "Google Font", local: "Installed font", file: "Uploaded file" };
+const OS_NAMES = { windows: "Windows", mac: "macOS", linux: "Linux", chromeos: "ChromeOS", android: "Android", other: "Other" };
+const FEATURE_NAMES = {
+  values: "Item values", sandbox: "Avatar Sandbox", playtime: "Playtime", tradeAlerts: "Trade alerts", friendAlerts: "Friend alerts",
+  syncFriends: "Friends sync", hideAds: "Hide ads", priceAlerts: "Price alerts", afford: "Can I afford it", seasonal: "Seasonal decorations",
+  animatedBg: "Animated menu", themeFonts: "Era fonts",
+};
+let users = null; // { state, url, data, error }
+
+async function loadUsers() {
+  const { url = "" } = (await ext.runtime.sendMessage({ type: "stats-config", force: true }).catch(() => null)) || {};
+  if (!url) {
+    users = { state: "noserver" };
+    return renderUsers();
+  }
+  const { statsKey = "" } = await loadStore("statsKey");
+  if (!statsKey) {
+    users = { state: "needkey", url };
+    return renderUsers();
+  }
+  try {
+    const res = await fetch(`${url}/v1/stats`, { headers: { Authorization: `Bearer ${statsKey}` }, credentials: "omit", cache: "no-store" });
+    if (res.status === 401) users = { state: "wrongkey", url };
+    else if (!res.ok) users = { state: "error", url, error: `HTTP ${res.status}` };
+    else users = { state: "ok", url, data: await res.json() };
+  } catch (err) {
+    users = { state: "error", url, error: String(err.message || err) };
+  }
+  renderUsers();
+}
+
+function usersMsg(children, isErr = false) {
+  return h("div", { className: `users-msg${isErr ? " note err" : ""}` }, children);
+}
+const code = (text) => h("code", { textContent: text });
+
+function renderUsers() {
+  const u = users || { state: "loading" };
+  const box = $("users-state");
+  $("users-body").hidden = !(u.state === "ok" && u.data?.active30);
+  $("stats-key-form").hidden = !["needkey", "wrongkey"].includes(u.state);
+  $("users-key-btn").hidden = u.state !== "ok";
+  box.replaceChildren();
+  if (u.state === "loading") box.append(usersMsg("Loading…"));
+  if (u.state === "noserver") {
+    box.append(usersMsg([
+      "The stats server isn't set up yet. It's free and takes about 5 minutes:",
+      h("ol", {}, [
+        h("li", {}, ["Make a free account at ", code("dash.cloudflare.com"), "."]),
+        h("li", {}, ["Create an API token from the ", h("b", { textContent: "Edit Cloudflare Workers" }), " template, and copy your Account ID (Workers & Pages, on the right)."]),
+        h("li", {}, ["In the GitHub repo (Settings, Secrets and variables, Actions) add ", code("CLOUDFLARE_API_TOKEN"), ", ", code("CLOUDFLARE_ACCOUNT_ID"), " and ", code("STATS_KEY"), " (any long password)."]),
+        h("li", {}, ["Run the ", h("b", { textContent: "Stats server" }), " workflow from the Actions tab, then type the same STATS_KEY here."]),
+      ]),
+    ]));
+  }
+  if (u.state === "needkey") box.append(usersMsg("Type your stats key (the STATS_KEY from GitHub) to see who uses Kerosene."));
+  if (u.state === "wrongkey") box.append(usersMsg("That stats key didn't work. It has to match the STATS_KEY secret in GitHub.", true));
+  if (u.state === "error") box.append(usersMsg(`Couldn't reach the stats server (${u.error}).`, true));
+  if (u.state !== "ok") return;
+
+  const d = u.data;
+  const total = d.active30 || 0;
+  $("users-sub").textContent = total ? `${fmt(total)} installs shared stats in the last 30 days` : "People who chose to share anonymous stats";
+  if (!total) {
+    box.append(usersMsg("No reports yet. Each install that says yes reports within a minute, then once a day."));
+    return;
+  }
+  const pct = (n) => `${Math.round((n / total) * 100)}%`;
+  const mini = (label, value) => h("div", {}, [h("span", { textContent: label }), h("b", { textContent: value })]);
+  $("users-kpis").replaceChildren(
+    mini("Active today", fmt(d.active1)), mini("This week", fmt(d.active7)), mini("This month", fmt(total)),
+    mini("New this week", fmt(d.new7)), mini("With Supa perks", pct(d.perks || 0)),
+  );
+  C.stacked($("u-browsers"), {
+    total,
+    parts: Object.entries(BROWSERS).filter(([k]) => d.browsers?.[k]).map(([k, [label, color]]) => ({ label, color, value: d.browsers[k], text: `${pct(d.browsers[k])} (${d.browsers[k]})` })),
+  });
+  const share = (host, counts, names, limit = 8) => C.bars(host, {
+    rows: Object.entries(counts || {}).sort((a, b) => b[1] - a[1]).slice(0, limit).map(([k, n]) => ({ label: names?.[k] || k, value: n, sub: `${n} install${n === 1 ? "" : "s"}` })),
+    format: pct,
+    empty: "No data yet",
+  });
+  share($("u-themes"), d.themes, THEME_NAMES);
+  share($("u-bgs"), d.backgrounds, BG_NAMES);
+  share($("u-fonts"), d.fonts, FONT_NAMES);
+  share($("u-versions"), d.versions, null, 6);
+  share($("u-os"), d.os, OS_NAMES);
+  share($("u-features"), Object.fromEntries(Object.keys(FEATURE_NAMES).map((k) => [k, d.features?.[k] || 0])), FEATURE_NAMES, 12);
+  const points = (d.history || []).map((x) => [Date.parse(`${x.d}T12:00:00Z`), x.a7]).filter((p) => p[0]);
+  if (points.length < 2) {
+    $("u-history").replaceChildren(h("p", { className: "empty", textContent: "Day-by-day counts start the day after the stats server goes live." }));
+  } else {
+    C.line($("u-history"), { points, timeLabel, gap: 2.5 * 86400000 });
+  }
+}
+
+function wireUsers() {
+  $("stats-key-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const key = $("stats-key").value.trim();
+    if (!key) return;
+    await ext.storage.local.set({ statsKey: key });
+    $("stats-key").value = "";
+    users = { state: "loading" };
+    renderUsers();
+    loadUsers();
+  });
+  $("users-key-btn").addEventListener("click", () => {
+    $("stats-key-form").hidden = !$("stats-key-form").hidden;
+    if (!$("stats-key-form").hidden) $("stats-key").focus();
+  });
+}
+
 // ---------- wiring ----------
 async function refreshStored() {
   await loadStored();
@@ -609,6 +731,7 @@ function wire() {
     await ext.runtime.sendMessage({ type: "admin-refresh" }).catch(() => null);
     await loadStored();
     await loadLive();
+    loadUsers();
     btn.disabled = false;
     btn.textContent = "Refresh";
   });
@@ -713,12 +836,15 @@ async function init() {
   } catch { /* fine */ }
   $("dash").hidden = false;
   wire();
+  wireUsers();
+  renderUsers();
   setRange(range);
   const got = await loadStored();
   renderAll();
   // a fresh sample if the last one is old (the background does this every 10 minutes)
   if (Date.now() - (got.adminTimers?.at || 0) > 10 * 60 * 1000) ext.runtime.sendMessage({ type: "admin-refresh" }).catch(() => {});
   await loadLive();
+  loadUsers();
 }
 
 init();

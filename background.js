@@ -430,9 +430,10 @@ const STATS_RETRY = 3600000;
 const STATS_CONFIG = `https://raw.githubusercontent.com/${S.REPO}/main/stats.json`;
 const STATS_URL = /^(https:\/\/[a-z0-9.-]+|http:\/\/(127\.0\.0\.1|localhost)(:\d+)?)$/i;
 
-async function statsUrl() {
+async function statsUrl(force = false) {
   const { statsConfig = null } = await ext.storage.local.get("statsConfig");
-  if (statsConfig && Date.now() - statsConfig.at < 12 * 3600000) return statsConfig.url;
+  // a known address is kept 12 hours; "not set up yet" is checked again hourly
+  if (!force && statsConfig && Date.now() - statsConfig.at < (statsConfig.url ? 12 : 1) * 3600000) return statsConfig.url;
   try {
     const res = await fetch(`${STATS_CONFIG}?t=${Date.now()}`, { cache: "no-store", credentials: "omit" });
     const data = res.ok ? await res.json() : null;
@@ -546,6 +547,11 @@ async function forgetStats() {
   if (url) await fetch(`${url}/v1/forget`, { method: "POST", credentials: "omit", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: statsId }) }).catch(() => {});
   await ext.storage.local.remove(["statsTimers"]);
 }
+
+// Firefox's own data-sharing switch (its prompt, or about:addons): follow it
+const isStatsPermission = (p) => Array.isArray(p?.data_collection) && p.data_collection.includes("technicalAndInteraction");
+ext.permissions?.onAdded?.addListener((p) => { if (isStatsPermission(p)) sendStats(true).catch(() => {}); });
+ext.permissions?.onRemoved?.addListener((p) => { if (isStatsPermission(p)) forgetStats().catch(() => {}); });
 
 // ---------- item values (Octomons) ----------
 let valuesLoading = null;
@@ -999,7 +1005,7 @@ ext.runtime.onMessage.addListener((msg, _sender, reply) => {
     return true;
   }
   if (msg?.type === "stats-config") {
-    statsUrl().then((url) => reply({ url }), () => reply({ url: "" }));
+    statsUrl(Boolean(msg.force)).then((url) => reply({ url }), () => reply({ url: "" }));
     return true;
   }
   if (msg?.type === "admin-widget") {

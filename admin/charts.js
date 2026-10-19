@@ -239,11 +239,14 @@
     const legend = h("ul", { className: "legend" });
     for (const p of parts) {
       if (p.value > 0) {
-        const seg = h("span", { className: `stack-seg ${p.cls}`, title: `${p.label}: ${p.value}` });
+        const seg = h("span", { className: `stack-seg ${p.cls || ""}`, title: `${p.label}: ${p.text ?? p.value}` });
         seg.style.flexGrow = String(p.value);
+        if (p.color) seg.style.background = p.color;
         bar.append(seg);
       }
-      legend.append(h("li", {}, [h("span", { className: `swatch ${p.cls}` }), h("b", { textContent: String(p.value) }), h("span", { textContent: ` ${p.label}` })]));
+      const sw = h("span", { className: `swatch ${p.cls || ""}` });
+      if (p.color) sw.style.background = p.color;
+      legend.append(h("li", {}, [sw, h("b", { textContent: String(p.text ?? p.value) }), h("span", { textContent: ` ${p.label}` })]));
     }
     bar.setAttribute("aria-label", parts.map((p) => `${p.value} ${p.label}`).join(", ") + ` of ${sum}`);
     host.append(bar, legend);

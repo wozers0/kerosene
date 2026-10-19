@@ -1290,10 +1290,20 @@ function renderStatsAsk() {
   $("stats-ask").hidden = settings.shareStats !== null || IN_TAB;
 }
 
-function wireStats() {
+async function wireStats() {
   $("stats-yes").addEventListener("click", () => answerStats(true));
   $("stats-no").addEventListener("click", () => answerStats(false));
   renderStatsAsk();
+  // a "no" in Firefox's own prompt (or its switch in about:addons) is a no here too
+  if (IS_FIREFOX && settings.shareStats === true) {
+    try {
+      if (!(await browser.permissions.contains({ data_collection: ["technicalAndInteraction"] }))) {
+        await update({ shareStats: false });
+        const toggle = document.querySelector('[data-setting="shareStats"]');
+        if (toggle) toggle.checked = false;
+      }
+    } catch { /* older Firefox: no separate switch */ }
+  }
 }
 
 // ---------- settings ----------

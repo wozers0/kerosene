@@ -51,6 +51,31 @@
         </figure>
       </div>
 
+      <section class="card wide" aria-labelledby="users-h">
+        <div class="card-head">
+          <div><h3 id="users-h">Kerosene users</h3><p id="users-sub">People who chose to share anonymous stats</p></div>
+          <button class="link" type="button" id="users-key-btn" hidden>Stats key</button>
+        </div>
+        <div id="users-state"></div>
+        <form class="add" id="stats-key-form" hidden>
+          <input type="password" id="stats-key" class="input" placeholder="Stats key (the STATS_KEY you put in GitHub)" autocomplete="off">
+          <button class="btn" type="submit">Save</button>
+        </form>
+        <div id="users-body" hidden>
+          <div class="mini-kpis" id="users-kpis"></div>
+          <div class="users-grid">
+            <figure class="sub-chart wide-cell"><figcaption><h4>Browsers</h4><p>Share of installs</p></figcaption><div id="u-browsers"></div></figure>
+            <figure class="sub-chart"><figcaption><h4>Themes</h4></figcaption><div id="u-themes"></div></figure>
+            <figure class="sub-chart"><figcaption><h4>Features turned on</h4></figcaption><div id="u-features"></div></figure>
+            <figure class="sub-chart"><figcaption><h4>Backgrounds</h4></figcaption><div id="u-bgs"></div></figure>
+            <figure class="sub-chart"><figcaption><h4>Fonts</h4></figcaption><div id="u-fonts"></div></figure>
+            <figure class="sub-chart"><figcaption><h4>Versions</h4></figcaption><div id="u-versions"></div></figure>
+            <figure class="sub-chart"><figcaption><h4>Systems</h4></figcaption><div id="u-os"></div></figure>
+            <figure class="sub-chart wide-cell"><figcaption><h4>Active installs</h4><p>Used in the last 7 days, day by day</p></figcaption><div class="chart" id="u-history"></div></figure>
+          </div>
+        </div>
+      </section>
+
       <div class="grid two">
         <figure class="card">
           <figcaption><h3>Top games right now</h3><p id="top-sub">Players in each game</p></figcaption>
