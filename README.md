@@ -26,11 +26,11 @@ Fuel for [Octane](https://octane.wtf). Kerosene is a browser extension for the O
 
 ## Privacy
 
-Kerosene asks once, in its menu, whether you want to share anonymous usage stats with its maker. Nothing is sent unless you say yes, and Firefox asks you again with its own data-sharing prompt.
+Kerosene asks once, in its menu, whether you want to share anonymous usage stats with its maker (dad on Octane). Nothing is sent unless you say yes. Firefox and Zen (version 140 and newer) also ask with their own data-sharing prompt.
 
 If you say yes, once a day Kerosene sends: your browser (Chrome, Brave, Edge, Opera, Firefox or Zen), your operating system, the Kerosene version, your theme, background type, font type, menu colour, whether Supa Games perks are unlocked, and which features are switched on. They're sent under a random install number made on your computer. Your Octane account, your friends, your trades and the pages you visit are never sent, and the stats server doesn't store your IP address. Reports are deleted 40 days after your last one.
 
-You can change your answer any time in **Settings → Share anonymous stats**. Turning it off also deletes what was already sent. The server's code is in [`stats/worker.js`](stats/worker.js).
+You can change your answer any time in **Settings → Share anonymous stats**. Turning it off also deletes what was already sent (if you're offline, Kerosene keeps trying until the server confirms it). The server's code is in [`stats/worker.js`](stats/worker.js).
 
 ## Install
 

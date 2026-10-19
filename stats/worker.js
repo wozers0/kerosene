@@ -73,7 +73,8 @@ async function listAll(kv, prefix) {
   return out;
 }
 
-const count = (map, key) => { map[key] = (map[key] || 0) + 1; };
+// own keys only: a slug like "constructor" must count like any other
+const count = (map, key) => { map[key] = (Object.hasOwn(map, key) ? map[key] : 0) + 1; };
 
 // Totals over every install that reported in the last 30 days
 export function aggregate(records, now) {

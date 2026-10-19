@@ -436,6 +436,8 @@ async function statsUrl(force = false) {
   if (!force && statsConfig && Date.now() - statsConfig.at < (statsConfig.url ? 12 : 1) * 3600000) return statsConfig.url;
   try {
     const res = await fetch(`${STATS_CONFIG}?t=${Date.now()}`, { cache: "no-store", credentials: "omit" });
+    // only a real answer replaces what we know (a GitHub hiccup keeps the last address)
+    if (!res.ok && (res.status !== 404 || statsConfig?.url)) return statsConfig?.url || "";
     const data = res.ok ? await res.json() : null;
     const url = STATS_URL.test(String(data?.url || "")) ? String(data.url) : "";
     await ext.storage.local.set({ statsConfig: { url, at: Date.now() } });
@@ -528,24 +530,42 @@ async function doSendStats(force) {
   if (!statsId) await ext.storage.local.set({ statsId: id });
   // the next try is booked first, so a failure waits an hour instead of every minute
   await ext.storage.local.set({ statsTimers: { ...statsTimers, next: now + STATS_RETRY } });
-  const res = await fetch(`${url}/v1/ping`, {
-    method: "POST",
-    credentials: "omit",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(await statsReport(s, id)),
-  });
+  const body = JSON.stringify(await statsReport(s, id));
+  // the answer may have changed while the address was being looked up
+  if ((await S.load()).shareStats !== true || !(await firefoxAllowsStats())) return { sent: false, why: "not allowed" };
+  const res = await fetch(`${url}/v1/ping`, { method: "POST", credentials: "omit", headers: { "Content-Type": "application/json" }, body });
   if (!res.ok) return { sent: false, why: `HTTP ${res.status}` };
   await ext.storage.local.set({ statsTimers: { sent: now, next: now + STATS_EVERY } });
+  await ext.storage.local.remove("statsForget"); // a yes again replaces any delete still owed
   return { sent: true };
 }
 
-// Saying no later also removes this install's report from the server
-async function forgetStats() {
+// Saying no later also removes this install's report from the server. The
+// delete is owed (statsForget) until the server confirms it; onTick retries.
+let forgetRun = null;
+function forgetStats() {
+  forgetRun ??= doForgetStats().finally(() => { forgetRun = null; });
+  return forgetRun;
+}
+
+async function doForgetStats() {
+  await statsRun?.catch(() => {}); // a report on its way lands first, then gets deleted
   const { statsId = null } = await ext.storage.local.get("statsId");
-  if (!statsId) return;
-  const url = await statsUrl();
-  if (url) await fetch(`${url}/v1/forget`, { method: "POST", credentials: "omit", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: statsId }) }).catch(() => {});
   await ext.storage.local.remove(["statsTimers"]);
+  if (!statsId) return;
+  await ext.storage.local.set({ statsForget: true });
+  const url = await statsUrl();
+  if (!url) return;
+  const res = await fetch(`${url}/v1/forget`, { method: "POST", credentials: "omit", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: statsId }) }).catch(() => null);
+  if (res?.ok) await ext.storage.local.remove("statsForget");
+}
+
+// retry a delete that couldn't reach the server, as long as the answer is still no
+async function retryForget() {
+  const { statsForget = false } = await ext.storage.local.get("statsForget");
+  if (!statsForget) return;
+  const s = await S.load();
+  if (s.shareStats !== true || !(await firefoxAllowsStats())) await forgetStats();
 }
 
 // Firefox's own data-sharing switch (its prompt, or about:addons): follow it
@@ -781,6 +801,7 @@ function onTick() {
   const friends = pollFriends().catch(() => {});
   alerting ??= friends.then(pollAlerts).catch(() => {}).then(() => pollAdmin()).catch(() => {}).finally(() => { alerting = null; });
   sendStats().catch(() => {});
+  retryForget().catch(() => {});
 }
 
 // ---------- updates ----------

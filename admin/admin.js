@@ -609,7 +609,7 @@ function renderUsers() {
   const box = $("users-state");
   $("users-body").hidden = !(u.state === "ok" && u.data?.active30);
   $("stats-key-form").hidden = !["needkey", "wrongkey"].includes(u.state);
-  $("users-key-btn").hidden = u.state !== "ok";
+  $("users-key-btn").hidden = !["ok", "error"].includes(u.state);
   box.replaceChildren();
   if (u.state === "loading") box.append(usersMsg("Loading…"));
   if (u.state === "noserver") {
@@ -669,6 +669,10 @@ function wireUsers() {
     e.preventDefault();
     const key = $("stats-key").value.trim();
     if (!key) return;
+    if (!/^[\x20-\x7e]+$/.test(key)) {
+      users = { state: "wrongkey" };
+      return renderUsers();
+    }
     await ext.storage.local.set({ statsKey: key });
     $("stats-key").value = "";
     users = { state: "loading" };
