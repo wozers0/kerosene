@@ -675,6 +675,26 @@ function wire() {
     }
   });
 
+  // players on Octane and the top games: every 5 seconds while the tab is visible
+  let topBusy = false, topPausedUntil = 0, topSig = "";
+  setInterval(async () => {
+    if (document.hidden || topBusy || Date.now() < topPausedUntil) return;
+    topBusy = true;
+    try {
+      const games = await S.fetchTopGames(100);
+      const active = games.filter((g) => g.playing);
+      state.top = { at: Date.now(), total: games.reduce((n, g) => n + g.playing, 0), count: active.length, games: active };
+      for (const g of games) state.games[g.universeId] ??= { name: g.name, placeId: g.placeId };
+      const sig = active.slice(0, 10).map((g) => `${g.placeId}:${g.playing}`).join(",");
+      renderKpis();
+      if (sig !== topSig) { topSig = sig; renderTop(); } // redraw the bars only when they change
+    } catch {
+      topPausedUntil = Date.now() + 60000; // Octane said no or is down: try again in a minute
+    } finally {
+      topBusy = false;
+    }
+  }, 5000);
+
   // live statuses every minute while the tab is visible
   setInterval(async () => {
     renderUpdated();
