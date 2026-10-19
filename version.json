@@ -1,11 +1,11 @@
 {
-  "version": "0.6.0",
-  "notes": "Release 0.6.0: custom font (Supa Games), playtime, real friend presence",
-  "released": "2026-10-18",
-  "firefox": "https://github.com/wozers0/kerosene/releases/download/v0.6.0/kerosene-firefox.xpi",
-  "chrome": "https://github.com/wozers0/kerosene/releases/download/v0.6.0/kerosene-chrome.zip",
-  "page": "https://github.com/wozers0/kerosene/releases/tag/v0.6.0",
+  "version": "0.7.0",
+  "notes": "Release 0.7.0: admin dashboard for dad",
+  "released": "2026-10-19",
+  "firefox": "https://github.com/wozers0/kerosene/releases/download/v0.7.0/kerosene-firefox.xpi",
+  "chrome": "https://github.com/wozers0/kerosene/releases/download/v0.7.0/kerosene-chrome.zip",
+  "page": "https://github.com/wozers0/kerosene/releases/tag/v0.7.0",
   "firefox_xpi": "https://raw.githubusercontent.com/wozers0/kerosene/main/dist/kerosene-firefox.xpi",
-  "firefox_sha256": "4fc86b17633effa2850bd3b458093174f054c9981ff0afd575d2bb0421c05582",
-  "firefox_size": 118664
+  "firefox_sha256": "fa89d93232f234ed471b7836ea3194a3dbbb7ef2afd7049582557c5b5969eb0b",
+  "firefox_size": 141423
 }
