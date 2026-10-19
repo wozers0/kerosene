@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kerosene admin</title>
+  <link rel="icon" href="../icons/icon32.png">
+  <link rel="stylesheet" href="admin.css">
+</head>
+<body>
+  <div class="page">
+    <header class="top">
+      <div class="brand">
+        <img src="../icons/icon48.png" alt="" width="28" height="28">
+        <div>
+          <h1>kerosene <span>admin</span></h1>
+          <p class="sub" id="whoami">checking who you are…</p>
+        </div>
+      </div>
+      <div class="top-actions">
+        <span class="updated" id="updated"></span>
+        <button class="btn" id="refresh" type="button">Refresh</button>
+      </div>
+    </header>
+
+    <!-- shown instead of the dashboard for anyone but dad -->
+    <section class="denied" id="denied" hidden>
+      <h2>Admins only</h2>
+      <p id="denied-text">This page only works for dad's Octane account.</p>
+    </section>
+
+    <main id="dash" hidden>
+      <div class="filters" role="group" aria-label="History range">
+        <span class="filters-label">History</span>
+        <button class="chip" type="button" data-range="86400000">24 hours</button>
+        <button class="chip" type="button" data-range="604800000">7 days</button>
+        <button class="chip" type="button" data-range="2592000000">30 days</button>
+        <span class="filters-note">Kerosene collects these every 10 minutes while your browser is open.</span>
+      </div>
+
+      <section class="kpis" id="kpis" aria-label="Headline numbers"></section>
+
+      <div class="grid two">
+        <figure class="card">
+          <figcaption><h3>Players on Octane</h3><p>In games right now, across the 100 most played games</p><button class="link" type="button" data-table="players">Table</button></figcaption>
+          <div class="chart" id="c-players"></div>
+        </figure>
+        <figure class="card">
+          <figcaption><h3>Supa Games members</h3><p>Group size over time</p><button class="link" type="button" data-table="members">Table</button></figcaption>
+          <div class="chart" id="c-members"></div>
+        </figure>
+      </div>
+
+      <div class="grid two">
+        <figure class="card">
+          <figcaption><h3>Top games right now</h3><p id="top-sub">Players in each game</p></figcaption>
+          <div id="c-top"></div>
+        </figure>
+        <figure class="card">
+          <figcaption><h3>Supa Games right now</h3><p>Members in a game, on the site, or offline</p></figcaption>
+          <div id="c-status"></div>
+          <h4 class="card-sub">What members are playing</h4>
+          <div id="c-member-games"></div>
+        </figure>
+      </div>
+
+      <section class="card wide" aria-labelledby="members-h">
+        <div class="card-head">
+          <div><h3 id="members-h">Members</h3><p id="members-sub"></p></div>
+          <div class="tools">
+            <input type="search" id="m-search" class="input" placeholder="Search members…" autocomplete="off">
+            <div class="seg" role="group" aria-label="Show">
+              <button class="chip" type="button" data-show="all">All</button>
+              <button class="chip" type="button" data-show="ingame">In game</button>
+              <button class="chip" type="button" data-show="online">Online</button>
+              <button class="chip" type="button" data-show="fav">★ Favourites</button>
+            </div>
+            <select id="m-sort" class="input" aria-label="Sort by">
+              <option value="status">Sort: status</option>
+              <option value="rank">Sort: rank</option>
+              <option value="name">Sort: name</option>
+              <option value="seen">Sort: last online</option>
+            </select>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="members">
+            <thead><tr><th class="c-star"><span class="sr">Favourite</span></th><th>Member</th><th>Rank</th><th>Status</th><th>Last online</th><th class="c-act"><span class="sr">Actions</span></th></tr></thead>
+            <tbody id="m-rows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <div class="grid two">
+        <section class="card" aria-labelledby="fav-h">
+          <div class="card-head"><div><h3 id="fav-h">Favourites</h3><p>Anyone on Octane, members or not</p></div></div>
+          <form class="add" id="fav-form">
+            <input type="text" id="fav-input" class="input" placeholder="Add by username or ID" autocomplete="off">
+            <button class="btn" type="submit">Add</button>
+          </form>
+          <p class="note" id="fav-note"></p>
+          <ul class="people" id="fav-list"></ul>
+        </section>
+        <section class="card" aria-labelledby="bans-h">
+          <div class="card-head"><div><h3 id="bans-h">Bans</h3><p>Banned people are removed from Supa Games, and removed again if they rejoin</p></div></div>
+          <form class="add" id="ban-form">
+            <input type="text" id="ban-input" class="input" placeholder="Ban by username or ID" autocomplete="off">
+            <button class="btn danger" type="submit">Ban</button>
+          </form>
+          <p class="note" id="ban-note"></p>
+          <ul class="people" id="ban-list"></ul>
+        </section>
+      </div>
+
+      <div class="grid two">
+        <figure class="card">
+          <figcaption><h3>Your playtime</h3><p>Last 14 days</p><button class="link" type="button" data-table="playtime">Table</button></figcaption>
+          <div class="chart" id="c-playtime"></div>
+        </figure>
+        <section class="card" aria-labelledby="act-h">
+          <div class="card-head"><div><h3 id="act-h">Activity</h3><p>Joins, leaves and bans in Supa Games</p></div></div>
+          <ul class="feed" id="feed"></ul>
+        </section>
+      </div>
+
+      <section class="card wide" aria-labelledby="audit-h">
+        <div class="card-head"><div><h3 id="audit-h">Group audit log</h3><p>Octane's own record of changes to Supa Games</p></div></div>
+        <ul class="feed" id="audit"></ul>
+      </section>
+    </main>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+  <script src="../shared/compat.js"></script>
+  <script src="../shared/settings.js"></script>
+  <script src="../shared/values.js"></script>
+  <script src="charts.js"></script>
+  <script src="admin.js"></script>
+</body>
+</html>

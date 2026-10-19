@@ -40,6 +40,11 @@
   // Themes, backgrounds, custom fonts, hide ads, price alerts and "can I
   // afford it" alerts are perks for members of this Octane group.
   const GROUP = { id: 428, name: "Supa Games", url: `${SITE}/groups/428/supa-games` };
+  // The admin dashboard is for this account only (dad, who owns Supa Games).
+  // Its actions run with that account's Octane session, so Octane itself
+  // decides what they're allowed to do.
+  const ADMIN_ID = 244;
+  const isAdmin = (viewer) => Number(viewer?.id) === ADMIN_ID;
   const ACCESS_TTL = 30 * 60 * 1000;
 
   // groupAccess: { userId, member, checkedAt } (kept fresh by the background)
@@ -92,16 +97,17 @@
     return res.json();
   }
 
-  // Octane's POST endpoints want Roblox's CSRF handshake: a call without the
-  // token is refused with a 403 that carries a fresh one in x-csrf-token
+  // Octane's POST/DELETE endpoints want Roblox's CSRF handshake: a call
+  // without the token is refused with a 403 that carries a fresh one in
+  // x-csrf-token
   let csrfToken = "";
-  async function postJson(url, body) {
+  async function sendJson(method, url, body) {
     for (let attempt = 0; attempt < 2; attempt++) {
       const res = await fetch(url, {
-        method: "POST",
+        method,
         credentials: "include",
         headers: { Accept: "application/json", "Content-Type": "application/json", ...(csrfToken ? { "X-CSRF-TOKEN": csrfToken } : {}) },
-        body: JSON.stringify(body),
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
       const token = res.headers.get("x-csrf-token");
       if (res.status === 403 && token && token !== csrfToken && attempt === 0) {
@@ -109,9 +115,11 @@
         continue;
       }
       if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status}`), { status: res.status });
-      return res.json();
+      const text = await res.text();
+      return text ? JSON.parse(text) : {};
     }
   }
+  const postJson = (url, body) => sendJson("POST", url, body);
 
   // userPresenceType: 0 offline, 1 website, 2 in game, 3 in Studio.
   // In a game, lastLocation is just "Playing": the game's name comes from its
@@ -133,7 +141,7 @@
     const out = {};
     for (let i = 0; i < userIds.length; i += 100) {
       const { userPresences = [] } = await postJson(`${API}/presence/v1/presence/users`, { userIds: userIds.slice(i, i + 100) });
-      for (const p of userPresences) out[p.userId] = presenceOf(p, false);
+      for (const p of userPresences) out[p.userId] = { ...presenceOf(p, false), lastOnline: p.lastOnline ? Date.parse(p.lastOnline) || 0 : 0 };
     }
     return out;
   }
@@ -215,7 +223,46 @@
     return data.some((g) => g.group?.id === GROUP.id);
   }
 
+  // ---------- group admin (see ADMIN_ID) ----------
+  const fetchGroupInfo = (groupId) => getJson(`${API}/groups/v1/groups/${encodeURIComponent(groupId)}`);
+
+  async function fetchGroupRoles(groupId) {
+    const { roles = [] } = await getJson(`${API}/groups/v1/groups/${encodeURIComponent(groupId)}/roles`);
+    return roles.map((r) => ({ id: r.id, name: r.name, rank: r.rank, count: r.memberCount || 0 }));
+  }
+
+  // Every member: [{ id, name, displayName, role, rank }]
+  async function fetchGroupMembers(groupId) {
+    const out = [];
+    let cursor = "";
+    for (let page = 0; page < 50; page++) {
+      const d = await getJson(`${API}/groups/v1/groups/${encodeURIComponent(groupId)}/users?limit=100&sortOrder=Desc${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`);
+      for (const m of d.data || []) {
+        if (m.user?.userId) out.push({ id: m.user.userId, name: m.user.username, displayName: m.user.displayName || m.user.username, role: m.role?.name || "", rank: m.role?.rank ?? 0 });
+      }
+      cursor = d.nextPageCursor;
+      if (!cursor) break;
+    }
+    return out;
+  }
+
+  // Removes someone from the group (needs the right to kick on Octane)
+  const kickFromGroup = (groupId, userId) =>
+    sendJson("DELETE", `${API}/groups/v1/groups/${encodeURIComponent(groupId)}/users/${encodeURIComponent(userId)}`);
+
+  // Who changed what in the group (group admins only)
+  async function fetchAuditLog(groupId, limit = 25) {
+    const { data = [] } = await getJson(`${API}/groups/v1/groups/${encodeURIComponent(groupId)}/audit-log?limit=${limit}&sortOrder=Desc`);
+    return data;
+  }
+
   // ---------- games ----------
+  // The most played games right now: [{ universeId, placeId, name, playing, visits }]
+  async function fetchTopGames(max = 100) {
+    const { games = [] } = await getJson(`${API}/games/v1/games/list?sortToken=&maxRows=${max}`);
+    return games.map((g) => ({ universeId: g.universeId, placeId: g.placeId, name: g.name || "Game", playing: g.playerCount || 0, visits: g.visitCount || 0 }));
+  }
+
   // Favourited games: the legacy favourites list (public)
   async function fetchFavoriteGames(userId) {
     const { Data } = await getJson(`${SITE}/users/favorites/list-json?assetTypeId=9&itemsPerPage=24&pageNumber=1&userId=${encodeURIComponent(userId)}`);
@@ -300,10 +347,11 @@
   }
 
   globalThis.KeroseneSettings = {
-    SITE, API, REPO, VERSION_URL, DEFAULTS, GROUP, ACCESS_TTL, load, save, effective, hasPerks, newerVersion, fetchLatestRelease,
+    SITE, API, REPO, VERSION_URL, DEFAULTS, GROUP, ADMIN_ID, isAdmin, ACCESS_TTL, load, save, effective, hasPerks, newerVersion, fetchLatestRelease,
     FONT_NAME, FONT_DATA, cleanFontName, googleFontUrl, fontFormat,
     fetchPresence, fetchFriends, fetchUser, fetchProfile, searchUsers, resolveUser, fetchHeadshots, fetchCollectibles,
     fetchGroupMember, fetchFavoriteGames, fetchGameStats, fetchGameIcons, fetchLowestResale, fetchBalance,
     fetchTrades, fetchTrade, fetchOwnedAssets,
+    fetchGroupInfo, fetchGroupRoles, fetchGroupMembers, kickFromGroup, fetchAuditLog, fetchTopGames,
   };
 })();

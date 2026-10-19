@@ -18,7 +18,7 @@ BUILD = ROOT / "build"
 REPO = "wozers0/kerosene"
 # Firefox checks this file for signed updates (see .github/workflows/release.yml)
 UPDATE_URL = f"https://raw.githubusercontent.com/{REPO}/main/updates.json"
-INCLUDE = ["background.js", "icons", "popup", "update", "content", "shared", "README.md"]
+INCLUDE = ["background.js", "icons", "popup", "update", "admin", "content", "shared", "README.md"]
 
 BACKGROUND_SCRIPTS = ["shared/compat.js", "shared/settings.js", "shared/values.js", "background.js"]
 

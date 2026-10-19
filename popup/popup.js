@@ -513,6 +513,7 @@ async function renderViewer() {
   const line = $("viewer-line");
   line.replaceChildren("fuel for ", el("b", { textContent: "octane" }));
   if (viewer) line.append(el("span", { className: "viewer-name", textContent: ` · ${viewer.displayName || viewer.name}` }));
+  $("admin-btn").hidden = !S.isAdmin(viewer);
 }
 
 function wireFriends() {
@@ -1341,6 +1342,10 @@ async function init() {
   wirePlaytime();
   renderPlaytime();
   $("update-btn").addEventListener("click", checkForUpdate);
+  $("admin-btn").addEventListener("click", () => {
+    ext.tabs.create({ url: ext.runtime.getURL("admin/admin.html") });
+    window.close();
+  });
   renderJustUpdated();
   wireToggles();
   renderSwatches();

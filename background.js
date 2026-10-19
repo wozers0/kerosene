@@ -233,6 +233,129 @@ function endSession(userId) {
   });
 }
 
+// ---------- admin dashboard (dad only, see S.ADMIN_ID) ----------
+// Every 10 minutes while dad's browser is open: how many people are playing
+// on Octane, Supa Games membership (who joined, who left), and keeping banned
+// people out of the group. The dashboard (admin/admin.html) reads all of it.
+const ADMIN_EVERY = 10 * 60 * 1000;
+const ADMIN_HISTORY = 30 * 24 * 6; // 30 days of 10-minute points
+const ADMIN_EVENTS = 300;
+const KICK_RETRY_NOTE = 6 * 60 * 60 * 1000;
+
+let adminLock = Promise.resolve();
+function adminTx(fn) {
+  const run = adminLock.then(fn, fn);
+  adminLock = run.catch(() => {});
+  return run;
+}
+
+async function adminState() {
+  const got = await ext.storage.local.get({ adminHistory: null, adminMembers: null, adminEvents: [], adminBans: {} });
+  return {
+    history: { players: got.adminHistory?.players || [], members: got.adminHistory?.members || [] },
+    members: got.adminMembers,
+    events: got.adminEvents,
+    bans: got.adminBans,
+  };
+}
+
+function pollAdmin(force = false) {
+  return adminTx(async () => {
+    const { viewer = null, adminTimers = {} } = await ext.storage.local.get(["viewer", "adminTimers"]);
+    if (!S.isAdmin(viewer)) return;
+    const now = Date.now();
+    if (!force && now - (adminTimers.at || 0) < ADMIN_EVERY) return;
+    await ext.storage.local.set({ adminTimers: { at: now } });
+    const st = await adminState();
+    const patch = {};
+
+    try {
+      const games = await S.fetchTopGames(100);
+      const total = games.reduce((n, g) => n + g.playing, 0);
+      st.history.players.push([now, total]);
+      patch.adminTop = { at: now, total, games: games.filter((g) => g.playing).slice(0, 15) };
+    } catch { /* try again next time */ }
+
+    try {
+      const members = await S.fetchGroupMembers(S.GROUP.id);
+      const before = st.members;
+      if (before?.ids) { // the first look is just the starting point
+        const had = new Set(before.ids);
+        const has = new Set(members.map((m) => m.id));
+        for (const m of members) if (!had.has(m.id)) st.events.push({ t: now, type: "join", userId: m.id, name: m.displayName });
+        for (const id of before.ids) if (!has.has(id)) st.events.push({ t: now, type: "leave", userId: id, name: before.names?.[id] || `#${id}` });
+      }
+      // banned people who joined again go straight back out
+      const kicked = new Set();
+      for (const m of members) {
+        const ban = st.bans[m.id];
+        if (!ban) continue;
+        try {
+          await S.kickFromGroup(S.GROUP.id, m.id);
+          kicked.add(m.id);
+          st.events.push({ t: now, type: "rekick", userId: m.id, name: m.displayName });
+        } catch (err) {
+          if (now - (ban.failAt || 0) > KICK_RETRY_NOTE) {
+            ban.failAt = now;
+            st.events.push({ t: now, type: "kick-failed", userId: m.id, name: m.displayName, detail: String(err.message || err) });
+          }
+        }
+      }
+      const stay = members.filter((m) => !kicked.has(m.id));
+      patch.adminMembers = { at: now, ids: stay.map((m) => m.id), names: Object.fromEntries(stay.map((m) => [m.id, m.displayName])), count: stay.length };
+      const last = st.history.members[st.history.members.length - 1];
+      if (!last || last[1] !== stay.length || now - last[0] >= 60 * 60 * 1000) st.history.members.push([now, stay.length]);
+    } catch { /* try again next time */ }
+
+    patch.adminHistory = { players: st.history.players.slice(-ADMIN_HISTORY), members: st.history.members.slice(-ADMIN_HISTORY) };
+    patch.adminEvents = st.events.slice(-ADMIN_EVENTS);
+    patch.adminBans = st.bans;
+    await ext.storage.local.set(patch);
+  });
+}
+
+// Ban: out of Supa Games now, and kept out (pollAdmin removes them if they rejoin)
+function adminBan(userId, name) {
+  return adminTx(async () => {
+    const { viewer = null } = await ext.storage.local.get("viewer");
+    if (!S.isAdmin(viewer)) throw new Error("Only dad can ban people");
+    userId = Number(userId);
+    if (!userId || userId === S.ADMIN_ID) throw new Error("You can't ban yourself");
+    const st = await adminState();
+    const now = Date.now();
+    let removed = false, error = "";
+    try {
+      await S.kickFromGroup(S.GROUP.id, userId);
+      removed = true;
+    } catch (err) {
+      error = String(err.message || err);
+    }
+    st.bans[userId] = { name: String(name || `#${userId}`).slice(0, 60), at: now };
+    st.events.push({ t: now, type: "ban", userId, name: st.bans[userId].name, detail: removed ? "removed from Supa Games" : `Octane didn't remove them (${error})` });
+    const patch = { adminBans: st.bans, adminEvents: st.events.slice(-ADMIN_EVENTS) };
+    if (removed && st.members?.ids) {
+      const ids = st.members.ids.filter((id) => id !== userId);
+      patch.adminMembers = { ...st.members, ids, count: ids.length };
+    }
+    await ext.storage.local.set(patch);
+    return { removed, error };
+  });
+}
+
+function adminUnban(userId) {
+  return adminTx(async () => {
+    const { viewer = null } = await ext.storage.local.get("viewer");
+    if (!S.isAdmin(viewer)) throw new Error("Only dad can unban people");
+    const st = await adminState();
+    const ban = st.bans[userId];
+    if (!ban) return { ok: true };
+    delete st.bans[userId];
+    st.events.push({ t: Date.now(), type: "unban", userId: Number(userId), name: ban.name });
+    await ext.storage.local.set({ adminBans: st.bans, adminEvents: st.events.slice(-ADMIN_EVENTS) });
+    return { ok: true };
+  });
+}
+
 // ---------- item values (Octomons) ----------
 let valuesLoading = null;
 async function getValues(force = false) {
@@ -459,7 +582,7 @@ function onTick() {
   getValues(); // refreshes when the cache is older than V.TTL
   // alerts after the friends poll, not at the same moment
   const friends = pollFriends().catch(() => {});
-  alerting ??= friends.then(pollAlerts).catch(() => {}).finally(() => { alerting = null; });
+  alerting ??= friends.then(pollAlerts).catch(() => {}).then(() => pollAdmin()).catch(() => {}).finally(() => { alerting = null; });
 }
 
 // ---------- updates ----------
@@ -677,6 +800,18 @@ ext.runtime.onMessage.addListener((msg, _sender, reply) => {
       delete playtime[msg.userId];
       await ext.storage.local.set({ playtime });
     }).then(() => reply(true), () => reply(false));
+    return true;
+  }
+  if (msg?.type === "admin-refresh") {
+    pollAdmin(true).then(() => reply({ ok: true }), (err) => reply({ error: String(err?.message || err) }));
+    return true;
+  }
+  if (msg?.type === "admin-ban") {
+    adminBan(msg.userId, msg.name).then(reply, (err) => reply({ error: String(err?.message || err) }));
+    return true;
+  }
+  if (msg?.type === "admin-unban") {
+    adminUnban(msg.userId).then(reply, (err) => reply({ error: String(err?.message || err) }));
     return true;
   }
   if (msg?.type === "check-access") {
