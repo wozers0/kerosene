@@ -379,7 +379,8 @@ async function buildWidget(force) {
   const prev = got.adminWidget;
   const now = Date.now();
   if (!force && prev && now - prev.at < WIDGET_MIN) return prev;
-  const snap = { at: now, total: prev?.total ?? null, games: prev?.games || [], supa: prev?.supa || null, trades: null };
+  // at: when this snapshot was built; dataAt: when Octane last answered (the widget dims when that's old)
+  const snap = { at: now, dataAt: prev?.dataAt ?? null, total: prev?.total ?? null, games: prev?.games || [], supa: prev?.supa || null, trades: null };
 
   const [games, members, trades] = await Promise.allSettled([
     S.fetchTopGames(100), S.fetchGroupMembers(S.GROUP.id), S.fetchInboundTradeCount(),
@@ -390,6 +391,7 @@ async function buildWidget(force) {
     const top = active.slice(0, 8);
     const icons = await S.fetchGameIcons(top.map((g) => g.universeId));
     snap.games = top.map((g) => ({ name: g.name, placeId: g.placeId, playing: g.playing, icon: icons[g.universeId] || "" }));
+    snap.dataAt = now;
   }
   if (members.status === "fulfilled") {
     const presence = await S.fetchPresence(members.value.map((m) => m.id)).catch(() => null);
@@ -412,7 +414,9 @@ async function buildWidget(force) {
     peak7: Math.max(nowCount, ...players.filter((p) => p[0] >= now - 7 * 86400000).map((p) => p[1])),
     peakToday: Math.max(nowCount, ...players.filter((p) => p[0] >= midnight).map((p) => p[1])),
   };
-  snap.joins24 = got.adminEvents.filter((e) => e.type === "join" && now - e.t < 86400000).length;
+  // a banned person kicked straight back out never really joined
+  const rekicked = new Set(got.adminEvents.filter((e) => e.type === "rekick").map((e) => `${e.t}:${e.userId}`));
+  snap.joins24 = got.adminEvents.filter((e) => e.type === "join" && now - e.t < 86400000 && !rekicked.has(`${e.t}:${e.userId}`)).length;
   await ext.storage.local.set({ adminWidget: snap });
   return snap;
 }
