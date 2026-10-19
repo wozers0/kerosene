@@ -1,11 +1,11 @@
 {
-  "version": "0.7.0",
-  "notes": "Release 0.7.0: admin dashboard for dad",
+  "version": "0.8.0",
+  "notes": "Release 0.8.0: admin widget, live player counts, opt-in usage stats",
   "released": "2026-10-19",
-  "firefox": "https://github.com/wozers0/kerosene/releases/download/v0.7.0/kerosene-firefox.xpi",
-  "chrome": "https://github.com/wozers0/kerosene/releases/download/v0.7.0/kerosene-chrome.zip",
-  "page": "https://github.com/wozers0/kerosene/releases/tag/v0.7.0",
+  "firefox": "https://github.com/wozers0/kerosene/releases/download/v0.8.0/kerosene-firefox.xpi",
+  "chrome": "https://github.com/wozers0/kerosene/releases/download/v0.8.0/kerosene-chrome.zip",
+  "page": "https://github.com/wozers0/kerosene/releases/tag/v0.8.0",
   "firefox_xpi": "https://raw.githubusercontent.com/wozers0/kerosene/main/dist/kerosene-firefox.xpi",
-  "firefox_sha256": "fa89d93232f234ed471b7836ea3194a3dbbb7ef2afd7049582557c5b5969eb0b",
-  "firefox_size": 141423
+  "firefox_sha256": "fb0b7dc6d43cee38ffa521cdd7f09252fed2126c82840dff3940bf4d926a2ca2",
+  "firefox_size": 154423
 }
