@@ -313,6 +313,12 @@
 
   const fetchTrade = (id) => getJson(`${API}/trades/v1/trades/${encodeURIComponent(id)}`);
 
+  // Trades waiting for you to answer (needs the Octane login)
+  async function fetchInboundTradeCount() {
+    const d = await getJson(`${API}/trades/v1/trades/inbound/count`);
+    return Number(d?.count ?? d?.data ?? 0) || 0;
+  }
+
   // Every wearable asset the user owns (public inventories), as a Set of ids
   async function fetchOwnedAssets(userId) {
     const types = [2, 8, 11, 12, 17, 18, 19, 27, 28, 29, 30, 31, 32, 41, 42, 43, 44, 45, 46, 47, 48, 50, 51, 52, 53, 54, 55, 56, 61];
@@ -351,7 +357,7 @@
     FONT_NAME, FONT_DATA, cleanFontName, googleFontUrl, fontFormat,
     fetchPresence, fetchFriends, fetchUser, fetchProfile, searchUsers, resolveUser, fetchHeadshots, fetchCollectibles,
     fetchGroupMember, fetchFavoriteGames, fetchGameStats, fetchGameIcons, fetchLowestResale, fetchBalance,
-    fetchTrades, fetchTrade, fetchOwnedAssets,
+    fetchTrades, fetchTrade, fetchInboundTradeCount, fetchOwnedAssets,
     fetchGroupInfo, fetchGroupRoles, fetchGroupMembers, kickFromGroup, fetchAuditLog, fetchTopGames,
   };
 })();

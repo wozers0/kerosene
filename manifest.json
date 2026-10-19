@@ -60,7 +60,8 @@
         "content/engine.js",
         "content/values.js",
         "content/avatar-sandbox.js",
-        "content/update-fx.js"
+        "content/update-fx.js",
+        "content/admin-widget.js"
       ],
       "run_at": "document_start",
       "all_frames": true

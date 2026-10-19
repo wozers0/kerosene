@@ -363,6 +363,60 @@ function adminUnban(userId) {
   });
 }
 
+// ---------- admin widget on Octane pages (dad only) ----------
+// content/admin-widget.js shows this snapshot bottom-left on octane.wtf. Any
+// open Octane tab can ask for a fresh one; at most one fetch per WIDGET_MIN.
+const WIDGET_MIN = 45 * 1000;
+let widgetRun = null;
+function refreshWidget(force = false) {
+  widgetRun ??= buildWidget(force).finally(() => { widgetRun = null; });
+  return widgetRun;
+}
+
+async function buildWidget(force) {
+  const got = await ext.storage.local.get({ viewer: null, adminWidget: null, friendStatus: {}, adminHistory: null, adminEvents: [] });
+  if (!S.isAdmin(got.viewer)) return null;
+  const prev = got.adminWidget;
+  const now = Date.now();
+  if (!force && prev && now - prev.at < WIDGET_MIN) return prev;
+  const snap = { at: now, total: prev?.total ?? null, games: prev?.games || [], supa: prev?.supa || null, trades: null };
+
+  const [games, members, trades] = await Promise.allSettled([
+    S.fetchTopGames(100), S.fetchGroupMembers(S.GROUP.id), S.fetchInboundTradeCount(),
+  ]);
+  if (games.status === "fulfilled") {
+    const active = games.value.filter((g) => g.playing);
+    snap.total = active.reduce((n, g) => n + g.playing, 0);
+    const top = active.slice(0, 8);
+    const icons = await S.fetchGameIcons(top.map((g) => g.universeId));
+    snap.games = top.map((g) => ({ name: g.name, placeId: g.placeId, playing: g.playing, icon: icons[g.universeId] || "" }));
+  }
+  if (members.status === "fulfilled") {
+    const presence = await S.fetchPresence(members.value.map((m) => m.id)).catch(() => null);
+    if (presence) {
+      const st = Object.values(presence).map((p) => p.status);
+      snap.supa = { members: members.value.length, online: st.filter((s) => s !== "offline").length, ingame: st.filter((s) => s === "ingame").length };
+    }
+  }
+  if (trades.status === "fulfilled") snap.trades = trades.value;
+
+  const friends = Object.values(got.friendStatus).filter((f) => !f.error);
+  snap.friends = { total: friends.length, online: friends.filter((f) => f.status !== "offline").length, ingame: friends.filter((f) => f.status === "ingame").length };
+
+  // Octane right now against its busiest moment this week and today
+  const players = got.adminHistory?.players || [];
+  const midnight = new Date(now).setHours(0, 0, 0, 0);
+  const nowCount = snap.total ?? 0;
+  snap.octane = {
+    now: nowCount,
+    peak7: Math.max(nowCount, ...players.filter((p) => p[0] >= now - 7 * 86400000).map((p) => p[1])),
+    peakToday: Math.max(nowCount, ...players.filter((p) => p[0] >= midnight).map((p) => p[1])),
+  };
+  snap.joins24 = got.adminEvents.filter((e) => e.type === "join" && now - e.t < 86400000).length;
+  await ext.storage.local.set({ adminWidget: snap });
+  return snap;
+}
+
 // ---------- item values (Octomons) ----------
 let valuesLoading = null;
 async function getValues(force = false) {
@@ -807,6 +861,14 @@ ext.runtime.onMessage.addListener((msg, _sender, reply) => {
       delete playtime[msg.userId];
       await ext.storage.local.set({ playtime });
     }).then(() => reply(true), () => reply(false));
+    return true;
+  }
+  if (msg?.type === "admin-widget") {
+    refreshWidget(Boolean(msg.force)).then(reply, () => reply(null));
+    return true;
+  }
+  if (msg?.type === "open-admin") {
+    ext.tabs.create({ url: ext.runtime.getURL("admin/admin.html") }).then(() => reply(true), () => reply(false));
     return true;
   }
   if (msg?.type === "admin-refresh") {
