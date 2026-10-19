@@ -62,13 +62,15 @@
   function line(host, { points, format = compact, timeLabel, gap = 30 * 60 * 1000, height = 190 }) {
     host.replaceChildren();
     const card = host.closest(".card") || host;
+    card.querySelector(":scope > .tip")?.setAttribute("hidden", "");
     const W = Math.max(host.clientWidth, 260), H = height, L = 36, R = 44, T = 10, B = 24;
     if (points.length < 2) {
       host.append(h("p", { className: "empty", textContent: "Collecting data: the first points show up within 10 minutes of opening Octane." }));
       return;
     }
     const t0 = points[0][0], t1 = points[points.length - 1][0];
-    const { top, step } = niceScale(Math.max(...points.map((p) => p[1])));
+    // counts: at least 0..4, so steps are whole numbers
+    const { top, step } = niceScale(Math.max(4, ...points.map((p) => p[1])));
     const x = (t) => L + ((t - t0) / Math.max(t1 - t0, 1)) * (W - L - R);
     const y = (v) => T + (1 - v / top) * (H - T - B);
     const svg = svgEl("svg", { width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: "img" });
@@ -157,6 +159,7 @@
   function columns(host, { rows, format = compact, valueFormat = format, labelled = [], steps = null, height = 170 }) {
     host.replaceChildren();
     const card = host.closest(".card") || host;
+    card.querySelector(":scope > .tip")?.setAttribute("hidden", "");
     const W = Math.max(host.clientWidth, 260), H = height, L = 40, R = 8, T = 16, B = 22;
     const { top, step } = niceScale(Math.max(...rows.map((r) => r.value), 0), 4, steps);
     const band = (W - L - R) / rows.length;

@@ -84,7 +84,7 @@ h1 {
 .head-right { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
 .head-buttons { display: flex; gap: 6px; }
 .update-btn[hidden] { display: none; }
-.admin-btn { color: #ffd166; border-color: rgba(255, 209, 102, 0.35); }
+.update-btn.admin-btn { color: #ffd166; border-color: rgba(255, 209, 102, 0.35); }
 
 /* update button: idle -> checking (spins) -> latest (green) / updating (yellow) / error (red) */
 .update-btn {

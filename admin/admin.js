@@ -94,11 +94,12 @@ const STATUS_ORDER = { ingame: 0, online: 1, offline: 2 };
 // ---------- live data ----------
 async function loadLive() {
   const tasks = [
-    S.fetchGroupInfo(S.GROUP.id).then((g) => { state.group = g; }),
+    S.fetchGroupInfo(S.GROUP.id).then((g) => { state.group = g; state.groupAt = Date.now(); }),
     S.fetchGroupRoles(S.GROUP.id).then((r) => { state.roles = r; }),
     S.fetchGroupMembers(S.GROUP.id).then((m) => { state.members = m; }),
     S.fetchTopGames(100).then((games) => {
-      state.top = { at: Date.now(), total: games.reduce((n, g) => n + g.playing, 0), games: games.filter((g) => g.playing) };
+      const active = games.filter((g) => g.playing);
+      state.top = { at: Date.now(), total: games.reduce((n, g) => n + g.playing, 0), count: active.length, games: active };
       for (const g of games) state.games[g.universeId] = { name: g.name, placeId: g.placeId };
     }),
   ];
@@ -172,7 +173,7 @@ async function loadStored() {
   state.bans = got.adminBans;
   state.favs = got.adminFavs;
   state.playtime = got.playtime?.[viewer.id] || null;
-  if (!state.top && got.adminTop) state.top = got.adminTop;
+  if (got.adminTop && (!state.top || got.adminTop.at > state.top.at)) state.top = got.adminTop;
   return got;
 }
 
@@ -195,6 +196,14 @@ function inRange(points) {
   return points.filter((p) => p[0] >= from);
 }
 
+// the newest member count we know: live group info or the background's last look
+function currentMemberCount() {
+  const last = state.history.members.at(-1);
+  if (state.group?.memberCount != null && (!last || (state.groupAt || 0) >= last[0])) return state.group.memberCount;
+  if (last) return last[1];
+  return state.members.length || null;
+}
+
 function kpi(label, value, foot, sparkPoints) {
   const footEl = h("div", { className: "kpi-foot" }, [foot]);
   if (sparkPoints) {
@@ -210,11 +219,12 @@ function renderKpis() {
   const players = inRange(state.history.players);
   const peak = players.length ? Math.max(...players.map((p) => p[1])) : null;
   const playersNow = state.top?.total;
-  const memberCount = state.group?.memberCount ?? state.members.length;
+  const memberCount = currentMemberCount();
   const membersHist = inRange(state.history.members);
-  const change = membersHist.length ? memberCount - membersHist[0][1] : null;
+  const change = membersHist.length && memberCount != null ? memberCount - membersHist[0][1] : null;
   const rangeName = range === 86400000 ? "24 hours" : range === 7 * 86400000 ? "7 days" : "30 days";
-  const changeEl = change == null ? h("span", { textContent: "no history yet" })
+  const changeEl = memberCount == null ? h("span", { textContent: liveAt ? "couldn't reach Octane" : "loading" })
+    : change == null ? h("span", { textContent: "no history yet" })
     : h("span", { className: change > 0 ? "delta-up" : change < 0 ? "delta-down" : "", textContent: `${change > 0 ? "+" : change < 0 ? "−" : "±"}${Math.abs(change)} in ${rangeName}` });
   const pres = state.members.map((m) => state.presence[m.id]?.status);
   const inGame = pres.filter((s) => s === "ingame").length;
@@ -226,7 +236,7 @@ function renderKpis() {
   const w = state.worth;
   box.replaceChildren(
     kpi("Players on Octane now", playersNow == null ? "—" : fmt(playersNow), h("span", { textContent: peak == null ? "collecting" : `peak ${fmt(peak)}`, title: `highest in the last ${rangeName}` }), players.slice(-144)),
-    kpi("Supa Games members", fmt(memberCount), changeEl),
+    kpi("Supa Games members", memberCount == null ? "—" : fmt(memberCount), changeEl),
     kpi("Members online", fmt(inGame + online), h("span", { textContent: `${inGame} in a game` })),
     kpi("Your playtime today", fmtDur(today), h("span", { textContent: `${fmtDur(week)} in 7 days` })),
     kpi("Your limiteds", w?.value != null ? fmt(w.value) : w?.error ? "—" : "…", h("span", { textContent: w?.value != null ? `RAP ${fmt(w.rap)} · ${w.count} items` : w?.error || "loading" })),
@@ -237,9 +247,9 @@ function renderKpis() {
 function renderHistory() {
   const players = inRange(state.history.players);
   const members = inRange(state.history.members);
-  const memberCount = state.group?.memberCount;
-  // the group's size right now, as the latest point
-  if (memberCount != null && (!members.length || Date.now() - members[members.length - 1][0] > 60000)) members.push([Date.now(), memberCount]);
+  // the group's size from the live look, when it's newer than the last stored point
+  const last = members.at(-1);
+  if (state.group?.memberCount != null && state.groupAt && (!last || state.groupAt - last[0] > 60000)) members.push([state.groupAt, state.group.memberCount]);
   drawOrTable("players", $("c-players"), () => C.line($("c-players"), { points: players, timeLabel }), ["Time", "Players"], players.map((p) => [timeLabel(p[0], 0, true), p[1]]));
   drawOrTable("members", $("c-members"), () => C.line($("c-members"), { points: members, timeLabel, gap: Infinity }), ["Time", "Members"], members.map((p) => [timeLabel(p[0], 0, true), p[1]]));
 }
@@ -254,7 +264,7 @@ function drawOrTable(key, host, draw, headers, rows) {
 
 function renderTop() {
   const games = (state.top?.games || []).slice(0, 10);
-  $("top-sub").textContent = state.top ? `${fmt(state.top.total)} players in ${state.top.games.length} games` : "Players in each game";
+  $("top-sub").textContent = state.top ? `${fmt(state.top.total)} players in ${state.top.count ?? state.top.games.length} games` : "Players in each game";
   C.bars($("c-top"), {
     rows: games.map((g) => ({ label: g.name, value: g.playing, onClick: () => openSite(`/games/${g.placeId}/`) })),
     empty: "Nobody is in a game right now.",
@@ -296,6 +306,8 @@ async function toggleFav(user) {
 }
 
 let confirming = null; // user id whose ban is being confirmed
+const banning = new Set(); // bans waiting for the background's answer
+function closeConfirm() { confirming = null; }
 function renderMembers() {
   const q = $("m-search").value.trim().toLowerCase();
   const sort = $("m-sort").value;
@@ -316,10 +328,12 @@ function renderMembers() {
   $("members-sub").textContent = `${total} members${rows.length !== total ? ` · ${rows.length} shown` : ""}`;
 
   const body = $("m-rows");
+  const keep = focusKey(body);
   body.replaceChildren();
   for (const m of rows) {
     const fav = isFav(m.id);
     const star = h("button", { className: "star", type: "button", textContent: "★", ariaLabel: `${fav ? "Unfavourite" : "Favourite"} ${m.displayName}` });
+    star.dataset.uid = m.id; star.dataset.act = "star";
     star.setAttribute("aria-pressed", String(fav));
     star.addEventListener("click", () => toggleFav(m));
     const who = h("div", { className: "who" }, [
@@ -342,46 +356,76 @@ function renderMembers() {
     body.append(tr);
   }
   if (!rows.length) body.append(h("tr", {}, h("td", { colSpan: 6, className: "empty", textContent: total ? "Nobody matches." : "Loading members…" })));
+  restoreFocus(body, keep);
+}
+
+// re-renders replace the rows; put keyboard focus back on the same control
+function focusKey(container) {
+  const a = document.activeElement;
+  return a && container.contains(a) && a.dataset.uid ? { uid: a.dataset.uid, act: a.dataset.act } : null;
+}
+function restoreFocus(container, key) {
+  if (key) container.querySelector(`[data-uid="${key.uid}"][data-act="${key.act}"]`)?.focus();
 }
 
 function rowActions(m) {
   const box = h("div", { className: "row-actions" });
   const profile = h("button", { className: "btn ghost small", type: "button", textContent: "Profile ↗" });
+  profile.dataset.uid = m.id; profile.dataset.act = "profile";
   profile.addEventListener("click", () => openSite(`/users/${m.id}/profile`));
   if (m.id === S.ADMIN_ID) {
     box.append(profile);
     return box;
   }
-  if (confirming === m.id) {
-    const yes = h("button", { className: "btn danger small", type: "button", textContent: "Ban" });
-    const no = h("button", { className: "btn ghost small", type: "button", textContent: "Cancel" });
-    yes.addEventListener("click", () => doBan(m.id, m.displayName, yes));
-    no.addEventListener("click", () => { confirming = null; renderMembers(); });
+  if (confirming === m.id || banning.has(m.id)) {
+    const busy = banning.has(m.id);
+    const yes = h("button", { className: "btn danger small", type: "button", textContent: busy ? "Banning…" : "Ban", disabled: busy });
+    const no = h("button", { className: "btn ghost small", type: "button", textContent: "Cancel", disabled: busy });
+    yes.dataset.uid = m.id; yes.dataset.act = "confirm";
+    no.dataset.uid = m.id; no.dataset.act = "cancel";
+    yes.addEventListener("click", () => doBan(m.id, m.displayName));
+    no.addEventListener("click", () => { closeConfirm(); renderMembers(); });
     box.append(h("div", { className: "confirm-box" }, [h("span", { textContent: `Ban ${m.displayName}? They're removed from Supa Games and kept out.` }), yes, no]));
-    setTimeout(() => yes.focus(), 0);
     return box;
   }
   if (state.bans[m.id]) {
     const unban = h("button", { className: "btn ghost small", type: "button", textContent: "Unban" });
+    unban.dataset.uid = m.id; unban.dataset.act = "unban";
     unban.addEventListener("click", () => doUnban(m.id, m.displayName));
     box.append(profile, unban);
   } else {
     const ban = h("button", { className: "btn danger small", type: "button", textContent: "Ban" });
-    ban.addEventListener("click", () => { confirming = m.id; renderMembers(); });
+    ban.dataset.uid = m.id; ban.dataset.act = "ban";
+    ban.addEventListener("click", () => {
+      confirming = m.id;
+      renderMembers();
+      // focus moves to the confirm once, when it opens (never on later re-renders)
+      $("m-rows").querySelector(`[data-uid="${m.id}"][data-act="cancel"]`)?.focus();
+    });
     box.append(profile, ban);
   }
   return box;
 }
 
-async function doBan(id, name, btn) {
-  if (btn) { btn.disabled = true; btn.textContent = "Banning…"; }
-  const res = await ext.runtime.sendMessage({ type: "admin-ban", userId: id, name }).catch((err) => ({ error: String(err?.message || err) }));
-  confirming = null;
-  if (res?.error) toast(`Couldn't ban ${name}: ${res.error}`, true);
-  else if (res?.removed) {
+async function doBan(id, name) {
+  if (banning.has(id)) return;
+  banning.add(id);
+  renderMembers();
+  let res;
+  try {
+    res = await ext.runtime.sendMessage({ type: "admin-ban", userId: id, name }).catch((err) => ({ error: String(err?.message || err) }));
+  } finally {
+    banning.delete(id);
+    if (confirming === id) closeConfirm();
+  }
+  if (res?.removed) {
     toast(`Banned ${name}. They're out of Supa Games.`);
     state.members = state.members.filter((m) => m.id !== id);
-  } else toast(`Banned ${name}, but Octane didn't remove them from the group (${res?.error || "no reason given"}). They'll be removed if Octane allows it later.`, true);
+  } else if (res && "kickError" in res) {
+    toast(`Banned ${name}, but Octane didn't remove them from the group (${res.kickError || "no reason given"}). Kerosene tries again every 10 minutes.`, true);
+  } else {
+    toast(`Couldn't ban ${name}: ${res?.error || "no answer from Kerosene"}`, true);
+  }
   await refreshStored();
 }
 
@@ -408,6 +452,7 @@ function personRow(user, extra = [], sub = null) {
 
 function renderFavs() {
   const list = $("fav-list");
+  const keep = focusKey(list);
   list.replaceChildren();
   for (const f of state.favs) {
     const p = state.presence[f.id];
@@ -418,13 +463,16 @@ function renderFavs() {
       extra.push(join);
     }
     const profile = h("button", { className: "btn ghost small", type: "button", textContent: "Profile ↗" });
+    profile.dataset.uid = f.id; profile.dataset.act = "profile";
     profile.addEventListener("click", () => openSite(`/users/${f.id}/profile`));
     const star = h("button", { className: "star", type: "button", textContent: "★", ariaLabel: `Unfavourite ${f.displayName || f.name}` });
+    star.dataset.uid = f.id; star.dataset.act = "star";
     star.setAttribute("aria-pressed", "true");
     star.addEventListener("click", () => toggleFav(f));
     list.append(personRow(f, [...extra, profile, star]));
   }
   if (!state.favs.length) list.append(h("li", { className: "empty", textContent: "Star someone in the members list, or add anyone by username." }));
+  restoreFocus(list, keep);
 }
 
 function renderBans() {
@@ -530,13 +578,22 @@ function wire() {
   for (const c of document.querySelectorAll("[data-show]")) {
     c.addEventListener("click", () => {
       showMode = c.dataset.show;
+      closeConfirm();
       for (const x of document.querySelectorAll("[data-show]")) x.setAttribute("aria-pressed", String(x === c));
       renderMembers();
     });
   }
   document.querySelector('[data-show="all"]').setAttribute("aria-pressed", "true");
-  $("m-search").addEventListener("input", renderMembers);
-  $("m-sort").addEventListener("change", renderMembers);
+  $("m-search").addEventListener("input", () => { closeConfirm(); renderMembers(); });
+  $("m-sort").addEventListener("change", () => { closeConfirm(); renderMembers(); });
+  $("m-rows").addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && confirming != null && !banning.has(confirming)) {
+      const id = confirming;
+      closeConfirm();
+      renderMembers();
+      $("m-rows").querySelector(`[data-uid="${id}"][data-act="ban"]`)?.focus();
+    }
+  });
   for (const b of document.querySelectorAll("[data-table]")) {
     b.addEventListener("click", () => {
       const key = b.dataset.table;
@@ -603,6 +660,13 @@ function wire() {
   ext.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
     if (changes.viewer && !S.isAdmin(changes.viewer.newValue)) location.reload();
+    const keys = Object.keys(changes);
+    if (keys.length === 1 && keys[0] === "playtime") {
+      state.playtime = changes.playtime.newValue?.[viewer.id] || null;
+      renderKpis();
+      renderPlaytime();
+      return;
+    }
     if (["adminHistory", "adminTop", "adminEvents", "adminBans", "adminFavs", "playtime"].some((k) => k in changes)) {
       const favsChanged = "adminFavs" in changes;
       refreshStored().then(() => {

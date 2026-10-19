@@ -273,7 +273,8 @@ function pollAdmin(force = false) {
       const games = await S.fetchTopGames(100);
       const total = games.reduce((n, g) => n + g.playing, 0);
       st.history.players.push([now, total]);
-      patch.adminTop = { at: now, total, games: games.filter((g) => g.playing).slice(0, 15) };
+      const active = games.filter((g) => g.playing);
+      patch.adminTop = { at: now, total, count: active.length, games: active.slice(0, 15) };
     } catch { /* try again next time */ }
 
     try {
@@ -293,7 +294,11 @@ function pollAdmin(force = false) {
         try {
           await S.kickFromGroup(S.GROUP.id, m.id);
           kicked.add(m.id);
-          st.events.push({ t: now, type: "rekick", userId: m.id, name: m.displayName });
+          // only someone who was gone at the last look really rejoined; otherwise the first kick didn't work
+          const rejoined = before?.ids && !before.ids.includes(m.id);
+          st.events.push(rejoined
+            ? { t: now, type: "rekick", userId: m.id, name: m.displayName }
+            : { t: now, type: "ban", userId: m.id, name: m.displayName, detail: "removed from Supa Games on a retry" });
         } catch (err) {
           if (now - (ban.failAt || 0) > KICK_RETRY_NOTE) {
             ban.failAt = now;
@@ -330,7 +335,8 @@ function adminBan(userId, name) {
     } catch (err) {
       error = String(err.message || err);
     }
-    st.bans[userId] = { name: String(name || `#${userId}`).slice(0, 60), at: now };
+    // a failed first kick counts toward the 6-hour throttle on "kick failed" notes
+    st.bans[userId] = { name: String(name || `#${userId}`).slice(0, 60), at: now, ...(removed ? {} : { failAt: now }) };
     st.events.push({ t: now, type: "ban", userId, name: st.bans[userId].name, detail: removed ? "removed from Supa Games" : `Octane didn't remove them (${error})` });
     const patch = { adminBans: st.bans, adminEvents: st.events.slice(-ADMIN_EVENTS) };
     if (removed && st.members?.ids) {
@@ -338,7 +344,8 @@ function adminBan(userId, name) {
       patch.adminMembers = { ...st.members, ids, count: ids.length };
     }
     await ext.storage.local.set(patch);
-    return { removed, error };
+    // saved either way; kickError says why Octane didn't remove them
+    return { removed, kickError: error };
   });
 }
 
