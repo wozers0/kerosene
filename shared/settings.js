@@ -26,6 +26,8 @@
     notifyOnline: true,
     notifyGames: true,
     trackPlaytime: true,
+    // dad only: the admin panel bottom-left on Octane pages (content/admin-widget.js)
+    showAdminWidget: true,
     // anonymous usage stats: null until the user answers the popup's question
     shareStats: null,
     // trading

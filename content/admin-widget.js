@@ -259,8 +259,8 @@
   }
 
   async function update() {
-    const got = await ext.storage.local.get({ viewer: null, enabled: true, adminWidget: null, adminWidgetCollapsed: false }).catch(() => null);
-    if (!got || !S.isAdmin(got.viewer) || !got.enabled) return unmount();
+    const got = await ext.storage.local.get({ viewer: null, enabled: true, showAdminWidget: true, adminWidget: null, adminWidgetCollapsed: false }).catch(() => null);
+    if (!got || !S.isAdmin(got.viewer) || !got.enabled || !got.showAdminWidget) return unmount();
     mount();
     setCollapsed(got.adminWidgetCollapsed);
     render(got.adminWidget);
@@ -274,7 +274,7 @@
 
   ext.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
-    if (changes.viewer || changes.enabled) update();
+    if (changes.viewer || changes.enabled || changes.showAdminWidget) update();
     else if (changes.adminWidget && root) render(changes.adminWidget.newValue);
     else if (changes.adminWidgetCollapsed) setCollapsed(Boolean(changes.adminWidgetCollapsed.newValue));
   });

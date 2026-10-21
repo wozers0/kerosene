@@ -309,6 +309,7 @@ a.btn { white-space: nowrap; flex-shrink: 0; text-decoration: none; }
 .row:hover { background: rgba(255, 255, 255, 0.03); }
 .row.compact { padding: 4px 6px; }
 div.row { cursor: default; }
+.row[hidden] { display: none; }
 .row-title { display: block; }
 .row-desc { display: block; color: var(--muted); font-size: 10.5px; margin-top: 2px; }
 
