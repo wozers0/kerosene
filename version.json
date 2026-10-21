@@ -1,11 +1,11 @@
 {
-  "version": "0.8.1",
-  "notes": "Release 0.8.1: switch for the admin panel on Octane in Settings",
+  "version": "0.8.2",
+  "notes": "Release 0.8.2: remove the Octane admin panel and the players-on-Octane count",
   "released": "2026-10-21",
-  "firefox": "https://github.com/wozers0/kerosene/releases/download/v0.8.1/kerosene-firefox.xpi",
-  "chrome": "https://github.com/wozers0/kerosene/releases/download/v0.8.1/kerosene-chrome.zip",
-  "page": "https://github.com/wozers0/kerosene/releases/tag/v0.8.1",
+  "firefox": "https://github.com/wozers0/kerosene/releases/download/v0.8.2/kerosene-firefox.xpi",
+  "chrome": "https://github.com/wozers0/kerosene/releases/download/v0.8.2/kerosene-chrome.zip",
+  "page": "https://github.com/wozers0/kerosene/releases/tag/v0.8.2",
   "firefox_xpi": "https://raw.githubusercontent.com/wozers0/kerosene/main/dist/kerosene-firefox.xpi",
-  "firefox_sha256": "1a29e4ed69919de16a22d13b54973ce2f4165a75c031c8f55de15ab0058dc578",
-  "firefox_size": 154602
+  "firefox_sha256": "e198c83ff8abf8026dfd06b1968110443d66b4daadb84382f30f9bb7a4535c8d",
+  "firefox_size": 147313
 }
