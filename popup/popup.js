@@ -514,7 +514,6 @@ async function renderViewer() {
   line.replaceChildren("fuel for ", el("b", { textContent: "octane" }));
   if (viewer) line.append(el("span", { className: "viewer-name", textContent: ` · ${viewer.displayName || viewer.name}` }));
   $("admin-btn").hidden = !S.isAdmin(viewer);
-  for (const row of document.querySelectorAll("[data-admin]")) row.hidden = !S.isAdmin(viewer);
 }
 
 function wireFriends() {

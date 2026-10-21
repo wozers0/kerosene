@@ -234,9 +234,8 @@ function endSession(userId) {
 }
 
 // ---------- admin dashboard (dad only, see S.ADMIN_ID) ----------
-// Every 10 minutes while dad's browser is open: how many people are playing
-// on Octane, Supa Games membership (who joined, who left), and keeping banned
-// people out of the group. The dashboard (admin/admin.html) reads all of it.
+// Every 10 minutes while dad's browser is open: Supa Games membership (who
+// joined, who left), and keeping banned people out of the group. The dashboard (admin/admin.html) reads all of it.
 const ADMIN_EVERY = 10 * 60 * 1000;
 const ADMIN_HISTORY = 30 * 24 * 6; // 30 days of 10-minute points
 const ADMIN_EVENTS = 300;
@@ -252,7 +251,7 @@ function adminTx(fn) {
 async function adminState() {
   const got = await ext.storage.local.get({ adminHistory: null, adminMembers: null, adminEvents: [], adminBans: {} });
   return {
-    history: { players: got.adminHistory?.players || [], members: got.adminHistory?.members || [] },
+    history: { members: got.adminHistory?.members || [] },
     members: got.adminMembers,
     events: got.adminEvents,
     bans: got.adminBans,
@@ -268,14 +267,6 @@ function pollAdmin(force = false) {
     await ext.storage.local.set({ adminTimers: { at: now } });
     const st = await adminState();
     const patch = {};
-
-    try {
-      const games = await S.fetchTopGames(100);
-      const total = games.reduce((n, g) => n + g.playing, 0);
-      st.history.players.push([now, total]);
-      const active = games.filter((g) => g.playing);
-      patch.adminTop = { at: now, total, count: active.length, games: active.slice(0, 15) };
-    } catch { /* try again next time */ }
 
     try {
       const members = await S.fetchGroupMembers(S.GROUP.id);
@@ -312,7 +303,7 @@ function pollAdmin(force = false) {
       if (!last || last[1] !== stay.length || now - last[0] >= 60 * 60 * 1000) st.history.members.push([now, stay.length]);
     } catch { /* try again next time */ }
 
-    patch.adminHistory = { players: st.history.players.slice(-ADMIN_HISTORY), members: st.history.members.slice(-ADMIN_HISTORY) };
+    patch.adminHistory = { members: st.history.members.slice(-ADMIN_HISTORY) };
     patch.adminEvents = st.events.slice(-ADMIN_EVENTS);
     patch.adminBans = st.bans;
     await ext.storage.local.set(patch);
@@ -361,64 +352,6 @@ function adminUnban(userId) {
     await ext.storage.local.set({ adminBans: st.bans, adminEvents: st.events.slice(-ADMIN_EVENTS) });
     return { ok: true };
   });
-}
-
-// ---------- admin widget on Octane pages (dad only) ----------
-// content/admin-widget.js shows this snapshot bottom-left on octane.wtf. Any
-// open Octane tab can ask for a fresh one; at most one fetch per WIDGET_MIN.
-const WIDGET_MIN = 45 * 1000;
-let widgetRun = null;
-function refreshWidget(force = false) {
-  widgetRun ??= buildWidget(force).finally(() => { widgetRun = null; });
-  return widgetRun;
-}
-
-async function buildWidget(force) {
-  const got = await ext.storage.local.get({ viewer: null, adminWidget: null, friendStatus: {}, adminHistory: null, adminEvents: [] });
-  if (!S.isAdmin(got.viewer)) return null;
-  const prev = got.adminWidget;
-  const now = Date.now();
-  if (!force && prev && now - prev.at < WIDGET_MIN) return prev;
-  // at: when this snapshot was built; dataAt: when Octane last answered (the widget dims when that's old)
-  const snap = { at: now, dataAt: prev?.dataAt ?? null, total: prev?.total ?? null, games: prev?.games || [], supa: prev?.supa || null, trades: null };
-
-  const [games, members, trades] = await Promise.allSettled([
-    S.fetchTopGames(100), S.fetchGroupMembers(S.GROUP.id), S.fetchInboundTradeCount(),
-  ]);
-  if (games.status === "fulfilled") {
-    const active = games.value.filter((g) => g.playing);
-    snap.total = active.reduce((n, g) => n + g.playing, 0);
-    const top = active.slice(0, 8);
-    const icons = await S.fetchGameIcons(top.map((g) => g.universeId));
-    snap.games = top.map((g) => ({ name: g.name, placeId: g.placeId, playing: g.playing, icon: icons[g.universeId] || "" }));
-    snap.dataAt = now;
-  }
-  if (members.status === "fulfilled") {
-    const presence = await S.fetchPresence(members.value.map((m) => m.id)).catch(() => null);
-    if (presence) {
-      const st = Object.values(presence).map((p) => p.status);
-      snap.supa = { members: members.value.length, online: st.filter((s) => s !== "offline").length, ingame: st.filter((s) => s === "ingame").length };
-    }
-  }
-  if (trades.status === "fulfilled") snap.trades = trades.value;
-
-  const friends = Object.values(got.friendStatus).filter((f) => !f.error);
-  snap.friends = { total: friends.length, online: friends.filter((f) => f.status !== "offline").length, ingame: friends.filter((f) => f.status === "ingame").length };
-
-  // Octane right now against its busiest moment this week and today
-  const players = got.adminHistory?.players || [];
-  const midnight = new Date(now).setHours(0, 0, 0, 0);
-  const nowCount = snap.total ?? 0;
-  snap.octane = {
-    now: nowCount,
-    peak7: Math.max(nowCount, ...players.filter((p) => p[0] >= now - 7 * 86400000).map((p) => p[1])),
-    peakToday: Math.max(nowCount, ...players.filter((p) => p[0] >= midnight).map((p) => p[1])),
-  };
-  // a banned person kicked straight back out never really joined
-  const rekicked = new Set(got.adminEvents.filter((e) => e.type === "rekick").map((e) => `${e.t}:${e.userId}`));
-  snap.joins24 = got.adminEvents.filter((e) => e.type === "join" && now - e.t < 86400000 && !rekicked.has(`${e.t}:${e.userId}`)).length;
-  await ext.storage.local.set({ adminWidget: snap });
-  return snap;
 }
 
 // ---------- anonymous usage stats (only after the user says yes) ----------
@@ -984,7 +917,11 @@ async function afterUpdate(previousVersion) {
 ext.runtime.onInstalled.addListener((details) => {
   ensureAlarm();
   onTick();
-  if (details?.reason === "update") afterUpdate(details.previousVersion);
+  if (details?.reason === "update") {
+    afterUpdate(details.previousVersion);
+    // the Octane admin panel and the player count are gone (0.8.2)
+    ext.storage.local.remove(["adminWidget", "adminWidgetCollapsed", "showAdminWidget", "adminTop"]).catch(() => {});
+  }
 });
 ext.runtime.onStartup.addListener(() => { ensureAlarm(); onTick(); });
 ext.alarms.onAlarm.addListener((a) => { if (a.name === ALARM) onTick(); });
@@ -1027,14 +964,6 @@ ext.runtime.onMessage.addListener((msg, _sender, reply) => {
   }
   if (msg?.type === "stats-config") {
     statsUrl(Boolean(msg.force)).then((url) => reply({ url }), () => reply({ url: "" }));
-    return true;
-  }
-  if (msg?.type === "admin-widget") {
-    refreshWidget(Boolean(msg.force)).then(reply, () => reply(null));
-    return true;
-  }
-  if (msg?.type === "open-admin") {
-    ext.tabs.create({ url: ext.runtime.getURL("admin/admin.html") }).then(() => reply(true), () => reply(false));
     return true;
   }
   if (msg?.type === "admin-refresh") {

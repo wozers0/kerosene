@@ -26,8 +26,8 @@ let feedShown = FEED_STEP;
 const tableView = new Set();
 let liveAt = 0;
 const state = {
-  group: null, roles: [], members: [], presence: {}, avatars: {}, games: {}, top: null,
-  worth: null, audit: null, history: { players: [], members: [] }, events: [], bans: {}, favs: [], playtime: null,
+  group: null, roles: [], members: [], presence: {}, avatars: {}, games: {},
+  worth: null, audit: null, history: { members: [] }, events: [], bans: {}, favs: [], playtime: null,
 };
 
 // ---------- small helpers ----------
@@ -97,11 +97,6 @@ async function loadLive() {
     S.fetchGroupInfo(S.GROUP.id).then((g) => { state.group = g; state.groupAt = Date.now(); }),
     S.fetchGroupRoles(S.GROUP.id).then((r) => { state.roles = r; }),
     S.fetchGroupMembers(S.GROUP.id).then((m) => { state.members = m; }),
-    S.fetchTopGames(100).then((games) => {
-      const active = games.filter((g) => g.playing);
-      state.top = { at: Date.now(), total: games.reduce((n, g) => n + g.playing, 0), count: active.length, games: active };
-      for (const g of games) state.games[g.universeId] = { name: g.name, placeId: g.placeId };
-    }),
   ];
   await Promise.allSettled(tasks);
   await loadPresence();
@@ -167,13 +162,12 @@ async function loadAudit() {
 }
 
 async function loadStored() {
-  const got = await loadStore({ adminHistory: null, adminTop: null, adminEvents: [], adminBans: {}, adminFavs: [], playtime: {}, adminTimers: {} });
-  state.history = { players: got.adminHistory?.players || [], members: got.adminHistory?.members || [] };
+  const got = await loadStore({ adminHistory: null, adminEvents: [], adminBans: {}, adminFavs: [], playtime: {}, adminTimers: {} });
+  state.history = { members: got.adminHistory?.members || [] };
   state.events = got.adminEvents;
   state.bans = got.adminBans;
   state.favs = got.adminFavs;
   state.playtime = got.playtime?.[viewer.id] || null;
-  if (got.adminTop && (!state.top || got.adminTop.at > state.top.at)) state.top = got.adminTop;
   return got;
 }
 
@@ -181,7 +175,6 @@ async function loadStored() {
 function renderAll() {
   renderKpis();
   renderHistory();
-  renderTop();
   renderStatusNow();
   renderMembers();
   renderFavs();
@@ -216,9 +209,6 @@ function kpi(label, value, foot, sparkPoints) {
 
 function renderKpis() {
   const box = $("kpis");
-  const players = inRange(state.history.players);
-  const peak = players.length ? Math.max(...players.map((p) => p[1])) : null;
-  const playersNow = state.top?.total;
   const memberCount = currentMemberCount();
   const membersHist = inRange(state.history.members);
   const change = membersHist.length && memberCount != null ? memberCount - membersHist[0][1] : null;
@@ -235,7 +225,6 @@ function renderKpis() {
   for (let i = 0; i < 7; i++) { week += state.playtime?.days?.[dayKey(d)] || 0; d.setDate(d.getDate() - 1); }
   const w = state.worth;
   box.replaceChildren(
-    kpi("Players on Octane now", playersNow == null ? "—" : fmt(playersNow), h("span", { textContent: peak == null ? "collecting" : `peak ${fmt(peak)}`, title: `highest in the last ${rangeName}` }), players.slice(-144)),
     kpi("Supa Games members", memberCount == null ? "—" : fmt(memberCount), changeEl),
     kpi("Members online", fmt(inGame + online), h("span", { textContent: `${inGame} in a game` })),
     kpi("Your playtime today", fmtDur(today), h("span", { textContent: `${fmtDur(week)} in 7 days` })),
@@ -245,12 +234,10 @@ function renderKpis() {
 }
 
 function renderHistory() {
-  const players = inRange(state.history.players);
   const members = inRange(state.history.members);
   // the group's size from the live look, when it's newer than the last stored point
   const last = members.at(-1);
   if (state.group?.memberCount != null && state.groupAt && (!last || state.groupAt - last[0] > 60000)) members.push([state.groupAt, state.group.memberCount]);
-  drawOrTable("players", $("c-players"), () => C.line($("c-players"), { points: players, timeLabel }), ["Time", "Players"], players.map((p) => [timeLabel(p[0], 0, true), p[1]]));
   drawOrTable("members", $("c-members"), () => C.line($("c-members"), { points: members, timeLabel, gap: Infinity }), ["Time", "Members"], members.map((p) => [timeLabel(p[0], 0, true), p[1]]));
 }
 
@@ -260,15 +247,6 @@ function drawOrTable(key, host, draw, headers, rows) {
   } else {
     draw();
   }
-}
-
-function renderTop() {
-  const games = (state.top?.games || []).slice(0, 10);
-  $("top-sub").textContent = state.top ? `${fmt(state.top.total)} players in ${state.top.count ?? state.top.games.length} games` : "Players in each game";
-  C.bars($("c-top"), {
-    rows: games.map((g) => ({ label: g.name, value: g.playing, onClick: () => openSite(`/games/${g.placeId}/`) })),
-    empty: "Nobody is in a game right now.",
-  });
 }
 
 function renderStatusNow() {
@@ -794,33 +772,13 @@ function wire() {
       renderPlaytime();
       return;
     }
-    if (["adminHistory", "adminTop", "adminEvents", "adminBans", "adminFavs", "playtime"].some((k) => k in changes)) {
+    if (["adminHistory", "adminEvents", "adminBans", "adminFavs", "playtime"].some((k) => k in changes)) {
       const favsChanged = "adminFavs" in changes;
       refreshStored().then(() => {
         if (favsChanged) loadPresence().then(() => { renderFavs(); renderMembers(); loadAvatars(); });
       });
     }
   });
-
-  // players on Octane and the top games: every 5 seconds while the tab is visible
-  let topBusy = false, topPausedUntil = 0, topSig = "";
-  setInterval(async () => {
-    if (document.hidden || topBusy || Date.now() < topPausedUntil) return;
-    topBusy = true;
-    try {
-      const games = await S.fetchTopGames(100);
-      const active = games.filter((g) => g.playing);
-      state.top = { at: Date.now(), total: games.reduce((n, g) => n + g.playing, 0), count: active.length, games: active };
-      for (const g of games) state.games[g.universeId] ??= { name: g.name, placeId: g.placeId };
-      const sig = active.slice(0, 10).map((g) => `${g.placeId}:${g.playing}`).join(",");
-      renderKpis();
-      if (sig !== topSig) { topSig = sig; renderTop(); } // redraw the bars only when they change
-    } catch {
-      topPausedUntil = Date.now() + 60000; // Octane said no or is down: try again in a minute
-    } finally {
-      topBusy = false;
-    }
-  }, 5000);
 
   // live statuses every minute while the tab is visible
   setInterval(async () => {

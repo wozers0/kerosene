@@ -42,12 +42,14 @@
 
       <div class="grid two">
         <figure class="card">
-          <figcaption><h3>Players on Octane</h3><p>In games right now, across the 100 most played games</p><button class="link" type="button" data-table="players">Table</button></figcaption>
-          <div class="chart" id="c-players"></div>
-        </figure>
-        <figure class="card">
           <figcaption><h3>Supa Games members</h3><p>Group size over time</p><button class="link" type="button" data-table="members">Table</button></figcaption>
           <div class="chart" id="c-members"></div>
+        </figure>
+        <figure class="card">
+          <figcaption><h3>Supa Games right now</h3><p>Members in a game, on the site, or offline</p></figcaption>
+          <div id="c-status"></div>
+          <h4 class="card-sub">What members are playing</h4>
+          <div id="c-member-games"></div>
         </figure>
       </div>
 
@@ -76,18 +78,6 @@
         </div>
       </section>
 
-      <div class="grid two">
-        <figure class="card">
-          <figcaption><h3>Top games right now</h3><p id="top-sub">Players in each game</p></figcaption>
-          <div id="c-top"></div>
-        </figure>
-        <figure class="card">
-          <figcaption><h3>Supa Games right now</h3><p>Members in a game, on the site, or offline</p></figcaption>
-          <div id="c-status"></div>
-          <h4 class="card-sub">What members are playing</h4>
-          <div id="c-member-games"></div>
-        </figure>
-      </div>
 
       <section class="card wide" aria-labelledby="members-h">
         <div class="card-head">

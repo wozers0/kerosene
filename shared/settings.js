@@ -26,8 +26,6 @@
     notifyOnline: true,
     notifyGames: true,
     trackPlaytime: true,
-    // dad only: the admin panel bottom-left on Octane pages (content/admin-widget.js)
-    showAdminWidget: true,
     // anonymous usage stats: null until the user answers the popup's question
     shareStats: null,
     // trading
@@ -261,12 +259,6 @@
   }
 
   // ---------- games ----------
-  // The most played games right now: [{ universeId, placeId, name, playing, visits }]
-  async function fetchTopGames(max = 100) {
-    const { games = [] } = await getJson(`${API}/games/v1/games/list?sortToken=&maxRows=${max}`);
-    return games.map((g) => ({ universeId: g.universeId, placeId: g.placeId, name: g.name || "Game", playing: g.playerCount || 0, visits: g.visitCount || 0 }));
-  }
-
   // Favourited games: the legacy favourites list (public)
   async function fetchFavoriteGames(userId) {
     const { Data } = await getJson(`${SITE}/users/favorites/list-json?assetTypeId=9&itemsPerPage=24&pageNumber=1&userId=${encodeURIComponent(userId)}`);
@@ -317,12 +309,6 @@
 
   const fetchTrade = (id) => getJson(`${API}/trades/v1/trades/${encodeURIComponent(id)}`);
 
-  // Trades waiting for you to answer (needs the Octane login)
-  async function fetchInboundTradeCount() {
-    const d = await getJson(`${API}/trades/v1/trades/inbound/count`);
-    return Number(d?.count ?? d?.data ?? 0) || 0;
-  }
-
   // Every wearable asset the user owns (public inventories), as a Set of ids
   async function fetchOwnedAssets(userId) {
     const types = [2, 8, 11, 12, 17, 18, 19, 27, 28, 29, 30, 31, 32, 41, 42, 43, 44, 45, 46, 47, 48, 50, 51, 52, 53, 54, 55, 56, 61];
@@ -361,7 +347,7 @@
     FONT_NAME, FONT_DATA, cleanFontName, googleFontUrl, fontFormat,
     fetchPresence, fetchFriends, fetchUser, fetchProfile, searchUsers, resolveUser, fetchHeadshots, fetchCollectibles,
     fetchGroupMember, fetchFavoriteGames, fetchGameStats, fetchGameIcons, fetchLowestResale, fetchBalance,
-    fetchTrades, fetchTrade, fetchInboundTradeCount, fetchOwnedAssets,
-    fetchGroupInfo, fetchGroupRoles, fetchGroupMembers, kickFromGroup, fetchAuditLog, fetchTopGames,
+    fetchTrades, fetchTrade, fetchOwnedAssets,
+    fetchGroupInfo, fetchGroupRoles, fetchGroupMembers, kickFromGroup, fetchAuditLog,
   };
 })();
