@@ -1,11 +1,11 @@
 {
-  "version": "0.8.2",
-  "notes": "Release 0.8.2: remove the Octane admin panel and the players-on-Octane count",
-  "released": "2026-10-21",
-  "firefox": "https://github.com/wozers0/kerosene/releases/download/v0.8.2/kerosene-firefox.xpi",
-  "chrome": "https://github.com/wozers0/kerosene/releases/download/v0.8.2/kerosene-chrome.zip",
-  "page": "https://github.com/wozers0/kerosene/releases/tag/v0.8.2",
+  "version": "0.8.3",
+  "notes": "Release 0.8.3: quick unfriend in the popup's Friends list",
+  "released": "2026-11-25",
+  "firefox": "https://github.com/wozers0/kerosene/releases/download/v0.8.3/kerosene-firefox.xpi",
+  "chrome": "https://github.com/wozers0/kerosene/releases/download/v0.8.3/kerosene-chrome.zip",
+  "page": "https://github.com/wozers0/kerosene/releases/tag/v0.8.3",
   "firefox_xpi": "https://raw.githubusercontent.com/wozers0/kerosene/main/dist/kerosene-firefox.xpi",
-  "firefox_sha256": "e198c83ff8abf8026dfd06b1968110443d66b4daadb84382f30f9bb7a4535c8d",
-  "firefox_size": 147313
+  "firefox_sha256": "1ed5346bfddf97c46d8d39c19f2c7d8ced1b61ca3a02bddb9afbb9f0284e9e74",
+  "firefox_size": 152222
 }
