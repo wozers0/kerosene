@@ -20,7 +20,7 @@ Fuel for [Octane](https://octane.wtf). Kerosene is a browser extension for the O
 - **Favourite games bar**: your Octane favourites at the top of the popup with live player counts; one click opens the game.
 - **Trade calculator** in the popup — add items to each side by name or acronym, add Robux, see the verdict.
 - **Your limiteds' worth** — item count, total value and RAP in the popup.
-- **Friends** — syncs your Octane friends list automatically, with avatars and live status: online, in Studio, or *playing &lt;game&gt;* (and for how long) with a Join button. Watch extra people by username or ID. Toolbar badge shows how many are online; optional alerts when a friend comes online or starts a game.
+- **Friends** — syncs your Octane friends list automatically, with avatars and live status: online, in Studio, or *playing &lt;game&gt;* (and for how long) with a Join button. Quick unfriend right from the list (click twice to confirm). Watch extra people by username or ID. Toolbar badge shows how many are online; optional alerts when a friend comes online or starts a game.
 - **User lookup** by username or ID, **quick links**, and a **seasonal toggle** for Octane's Halloween decorations.
 - **Interactive popup** — OLED-black background of drifting characters that light up around your cursor; click for a ripple.
 

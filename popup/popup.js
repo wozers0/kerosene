@@ -469,6 +469,7 @@ async function renderFriends() {
       actions.push(iconBtn("Join", `Open ${u.location}`, () => openSite(`/games/${u.placeId}`), "btn small"));
     }
     actions.push(iconBtn("↗", "Open profile", () => openSite(`/users/${u.id}/profile`)));
+    if (u.friend) actions.push(unfriendBtn(u));
     if (!u.friend) {
       actions.push(iconBtn("×", "Stop watching", async () => {
         await update({ friends: settings.friends.filter((f) => f !== u.id) });
@@ -492,8 +493,58 @@ async function renderFriends() {
   $("friends-meta").textContent = total ? `${online}/${total} online` : "";
   const note = friendsMeta.syncError ? `sync failed (${friendsMeta.syncError})`
     : friendsMeta.checked ? `checked ${timeAgo(friendsMeta.checked)} · every minute` : "";
-  $("friends-checked").textContent = note;
-  $("friends-checked").classList.toggle("err", Boolean(friendsMeta.syncError));
+  // a fresh result (e.g. "Unfriended X") stays up for a few seconds over the usual note
+  const flash = friendsFlash && Date.now() < friendsFlash.until ? friendsFlash : null;
+  $("friends-checked").textContent = flash ? flash.text : note;
+  $("friends-checked").classList.toggle("err", flash ? flash.err : Boolean(friendsMeta.syncError));
+}
+
+// Quick unfriend: the first click arms the button for a few seconds, a second
+// click (not part of a double-click) unfriends. Kept across list re-renders.
+const UNFRIEND_ARMED_MS = 3000;
+let unfriendArmed = null; // { id, at }
+let friendsFlash = null; // { text, err, until }
+const unfriending = new Set();
+
+function unfriendBtn(u) {
+  const name = u.displayName || u.name || `#${u.id}`;
+  const armed = unfriendArmed?.id === u.id && Date.now() - unfriendArmed.at < UNFRIEND_ARMED_MS;
+  const busy = unfriending.has(u.id);
+  const b = el("button", {
+    className: `btn ghost icon unfriend${armed || busy ? " armed" : ""}`,
+    type: "button",
+    title: busy ? `Unfriending ${name}…` : armed ? `Click again to unfriend ${name}` : `Unfriend ${name}`,
+    disabled: busy,
+  });
+  b.setAttribute("aria-label", b.title);
+  if (busy) b.textContent = "…";
+  else if (armed) b.textContent = "Unfriend?";
+  else {
+    // a person with a minus sign
+    const tpl = document.createElement("template");
+    tpl.innerHTML = `<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M15 19c0-2.8-2.7-4.5-6-4.5S3 16.2 3 19M9 11.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7ZM16 11h6"/></svg>`;
+    b.append(tpl.content);
+  }
+  b.addEventListener("click", async () => {
+    if (unfriending.has(u.id)) return;
+    const now = Date.now();
+    const live = unfriendArmed?.id === u.id && now - unfriendArmed.at < UNFRIEND_ARMED_MS;
+    if (!live) {
+      unfriendArmed = { id: u.id, at: now };
+      renderFriends();
+      setTimeout(() => { if (unfriendArmed?.id === u.id && Date.now() - unfriendArmed.at >= UNFRIEND_ARMED_MS) { unfriendArmed = null; renderFriends(); } }, UNFRIEND_ARMED_MS + 50);
+      return;
+    }
+    if (now - unfriendArmed.at < 400) return; // the second click of a double-click doesn't count
+    unfriendArmed = null;
+    unfriending.add(u.id);
+    renderFriends();
+    const res = await ext.runtime.sendMessage({ type: "unfriend", userId: u.id }).catch((err) => ({ error: String(err?.message || err) }));
+    unfriending.delete(u.id);
+    friendsFlash = { text: res?.ok ? `Unfriended ${name}` : res?.error || "Couldn't unfriend them", err: !res?.ok, until: Date.now() + 5000 };
+    renderFriends();
+  });
+  return b;
 }
 
 async function watchUser(query) {

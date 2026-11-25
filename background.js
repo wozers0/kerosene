@@ -506,6 +506,28 @@ const isStatsPermission = (p) => Array.isArray(p?.data_collection) && p.data_col
 ext.permissions?.onAdded?.addListener((p) => { if (isStatsPermission(p)) sendStats(true).catch(() => {}); });
 ext.permissions?.onRemoved?.addListener((p) => { if (isStatsPermission(p)) forgetStats().catch(() => {}); });
 
+// ---------- quick unfriend (from the popup's Friends list) ----------
+async function unfriend(userId) {
+  userId = Number(userId);
+  const { viewer = null } = await ext.storage.local.get("viewer");
+  if (!viewer?.id) return { error: "Open octane.wtf while you're signed in first." };
+  if (userId === Number(viewer.id)) return { error: "That's you." };
+  try {
+    await S.unfriend(userId);
+  } catch (err) {
+    if (err.status === 401) return { error: "Octane says you're signed out. Sign in on octane.wtf and try again." };
+    return { error: `Octane didn't unfriend them (${err.message || err}).` };
+  }
+  // gone from the list straight away; the next poll confirms it
+  const { friendStatus = {} } = await ext.storage.local.get("friendStatus");
+  if (friendStatus[userId]?.friend) {
+    delete friendStatus[userId];
+    await ext.storage.local.set({ friendStatus });
+  }
+  pollFriends().catch(() => {});
+  return { ok: true };
+}
+
 // ---------- item values (Octomons) ----------
 let valuesLoading = null;
 async function getValues(force = false) {
@@ -950,6 +972,10 @@ ext.notifications.onClicked.addListener((nid) => {
 });
 
 ext.runtime.onMessage.addListener((msg, _sender, reply) => {
+  if (msg?.type === "unfriend" && msg.userId) {
+    unfriend(msg.userId).then(reply, (err) => reply({ error: String(err?.message || err) }));
+    return true;
+  }
   if (msg?.type === "refresh-friends") {
     pollFriends().then(reply, () => reply(null));
     return true;

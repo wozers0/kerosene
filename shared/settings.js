@@ -309,6 +309,9 @@
 
   const fetchTrade = (id) => getJson(`${API}/trades/v1/trades/${encodeURIComponent(id)}`);
 
+  // Ends a friendship, the way Octane's friends page does (needs the Octane login)
+  const unfriend = (userId) => postJson(`${API}/friends/v1/users/${encodeURIComponent(userId)}/unfriend`, {});
+
   // Every wearable asset the user owns (public inventories), as a Set of ids
   async function fetchOwnedAssets(userId) {
     const types = [2, 8, 11, 12, 17, 18, 19, 27, 28, 29, 30, 31, 32, 41, 42, 43, 44, 45, 46, 47, 48, 50, 51, 52, 53, 54, 55, 56, 61];
@@ -347,7 +350,7 @@
     FONT_NAME, FONT_DATA, cleanFontName, googleFontUrl, fontFormat,
     fetchPresence, fetchFriends, fetchUser, fetchProfile, searchUsers, resolveUser, fetchHeadshots, fetchCollectibles,
     fetchGroupMember, fetchFavoriteGames, fetchGameStats, fetchGameIcons, fetchLowestResale, fetchBalance,
-    fetchTrades, fetchTrade, fetchOwnedAssets,
+    fetchTrades, fetchTrade, fetchOwnedAssets, unfriend,
     fetchGroupInfo, fetchGroupRoles, fetchGroupMembers, kickFromGroup, fetchAuditLog,
   };
 })();

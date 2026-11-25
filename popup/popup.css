@@ -288,6 +288,9 @@ a.btn { white-space: nowrap; flex-shrink: 0; text-decoration: none; }
 .btn.small { height: 24px; padding: 0 9px; font-size: 11px; }
 .btn.wide { flex: 1; }
 .btn.icon { width: 24px; height: 24px; padding: 0; font-size: 13px; }
+.btn.icon.unfriend { display: inline-grid; place-items: center; color: var(--muted); }
+.btn.icon.unfriend:hover { color: #e5786d; }
+.btn.icon.unfriend.armed { width: auto; padding: 0 7px; font-size: 10.5px; font-weight: 600; color: #e5786d; border-color: rgba(229, 120, 109, 0.5); background: rgba(229, 120, 109, 0.1); }
 
 .note { margin: 0; color: var(--muted); font-size: 10.5px; min-height: 0; }
 .note.err { color: #e5786d; }
