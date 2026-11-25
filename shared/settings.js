@@ -164,6 +164,13 @@
       }));
   }
 
+  // Every friend, deleted and banned accounts included (for bulk removal):
+  // [{ id, name, displayName, online, deleted, banned }]
+  async function fetchFriendList(userId) {
+    const { data = [] } = await getJson(`${API}/friends/v1/users/${encodeURIComponent(userId)}/friends`);
+    return data.map((f) => ({ id: f.id, name: f.name, displayName: f.displayName || f.name, online: Boolean(f.isOnline), deleted: Boolean(f.isDeleted), banned: Boolean(f.isBanned) }));
+  }
+
   // A single user (name + online flag): /users/{id}
   async function fetchUser(id) {
     const data = await getJson(`${SITE}/users/${encodeURIComponent(id)}`);
@@ -348,7 +355,7 @@
   globalThis.KeroseneSettings = {
     SITE, API, REPO, VERSION_URL, DEFAULTS, GROUP, ADMIN_ID, isAdmin, ACCESS_TTL, load, save, effective, hasPerks, newerVersion, fetchLatestRelease,
     FONT_NAME, FONT_DATA, cleanFontName, googleFontUrl, fontFormat,
-    fetchPresence, fetchFriends, fetchUser, fetchProfile, searchUsers, resolveUser, fetchHeadshots, fetchCollectibles,
+    fetchPresence, fetchFriends, fetchFriendList, fetchUser, fetchProfile, searchUsers, resolveUser, fetchHeadshots, fetchCollectibles,
     fetchGroupMember, fetchFavoriteGames, fetchGameStats, fetchGameIcons, fetchLowestResale, fetchBalance,
     fetchTrades, fetchTrade, fetchOwnedAssets, unfriend,
     fetchGroupInfo, fetchGroupRoles, fetchGroupMembers, kickFromGroup, fetchAuditLog,
