@@ -1,11 +1,11 @@
 {
-  "version": "0.8.3",
-  "notes": "Release 0.8.3: quick unfriend in the popup's Friends list",
+  "version": "0.8.4",
+  "notes": "Release 0.8.4: bulk unfriend on Octane's friends page",
   "released": "2026-11-25",
-  "firefox": "https://github.com/wozers0/kerosene/releases/download/v0.8.3/kerosene-firefox.xpi",
-  "chrome": "https://github.com/wozers0/kerosene/releases/download/v0.8.3/kerosene-chrome.zip",
-  "page": "https://github.com/wozers0/kerosene/releases/tag/v0.8.3",
+  "firefox": "https://github.com/wozers0/kerosene/releases/download/v0.8.4/kerosene-firefox.xpi",
+  "chrome": "https://github.com/wozers0/kerosene/releases/download/v0.8.4/kerosene-chrome.zip",
+  "page": "https://github.com/wozers0/kerosene/releases/tag/v0.8.4",
   "firefox_xpi": "https://raw.githubusercontent.com/wozers0/kerosene/main/dist/kerosene-firefox.xpi",
-  "firefox_sha256": "1ed5346bfddf97c46d8d39c19f2c7d8ced1b61ca3a02bddb9afbb9f0284e9e74",
-  "firefox_size": 152222
+  "firefox_sha256": "409bbf41f2e309d880a2d50f59ae25713202acc69a15452a29484fe729240b3c",
+  "firefox_size": 157981
 }
